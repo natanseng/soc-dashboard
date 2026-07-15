@@ -255,17 +255,24 @@ body{
 #soc .p-trend{grid-column:3;grid-row:1/4}
 #soc .p-ep{grid-column:2;grid-row:3}
 
-#cs{grid-template-columns:repeat(4,1fr);grid-template-rows:1.1fr 1fr}
-#cs .p-adopt{grid-column:1/3;grid-row:1}
-#cs .p-health{grid-column:3/5;grid-row:1}
-#cs .p-value{grid-column:1/3;grid-row:2}
-#cs .p-roi{grid-column:3/5;grid-row:2}
+#vuln{grid-template-columns:repeat(2,1fr);grid-template-rows:1fr 1fr}
+#vuln .p-vcves{grid-column:1;grid-row:1}
+#vuln .p-vservers{grid-column:2;grid-row:1}
+#vuln .p-vendpoints{grid-column:1;grid-row:2}
+#vuln .p-vapps{grid-column:2;grid-row:2}
+.rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
+.rlist .rfrow{flex:1;min-height:0}
+.rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
+.rlist .rnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
+.rmsg{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;font-size:13px;letter-spacing:.3px;text-align:center;color:var(--muted);padding:10px}
 
 #map.screen{grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px}
 #map .p-rankings{display:flex;flex-direction:column;gap:14px}
 
 @media (max-width:1100px){
-  #exec,#soc,#cs{grid-template-columns:1fr 1fr}
+  #exec,#soc{grid-template-columns:1fr 1fr}
+  #vuln{grid-template-columns:1fr;grid-template-rows:repeat(4,1fr)}
   #map.screen{grid-template-columns:1fr}
 }
 </style>
@@ -439,49 +446,23 @@ body{
     </div>
   </section>
 
-  <!-- ===================== CUSTOMER SUCCESS ===================== -->
-  <section class="screen" id="cs">
-    <div class="panel p-adopt">
-      <div class="phead"><span class="ico"></span><h3>Adoção de Recursos</h3><span class="sub">features endpoint × servidor</span><span class="livetag" id="adoptLive" style="display:none">● AO VIVO</span></div>
-      <div style="display:flex;gap:14px;flex:1;min-height:0">
-        <div style="display:grid;grid-template-rows:1fr 1fr;gap:10px;width:170px">
-          <div class="kpi"><div class="v" id="adAgents">—</div><div class="l">Agentes reportando</div></div>
-          <div class="kpi"><div class="v c-ok" id="adMailPct">—</div><div class="l">E-mail protegido</div></div>
-        </div>
-        <div style="flex:1;min-height:0"><div class="echart" id="adoptChart"></div></div>
-      </div>
+  <!-- ===================== VULNERABILIDADES ===================== -->
+  <section class="screen" id="vuln">
+    <div class="panel p-vcves">
+      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por ativos afetados</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+      <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
     </div>
-
-    <div class="panel p-health">
-      <div class="phead"><span class="ico"></span><h3>Saúde dos Agentes</h3><span class="sub">versão do agente</span></div>
-      <div class="kpis" style="grid-template-columns:repeat(2,1fr);flex:1;align-content:center">
-        <div class="kpi"><div class="v c-ok" id="adVerLatest">—</div><div class="l">Última versão</div></div>
-        <div class="kpi"><div class="v" id="adVerOther">—</div><div class="l">Outras versões</div></div>
-        <div class="kpi"><div class="v c-high" id="adVerOld">—</div><div class="l">Desatualizados</div></div>
-        <div class="kpi"><div class="v c-crit" id="adLegacy">—</div><div class="l">SO fim de vida</div></div>
-      </div>
+    <div class="panel p-vservers">
+      <div class="phead"><span class="ico"></span><h3>Top 10 Servidores</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vServersLive" style="display:none">● AO VIVO</span></div>
+      <div class="rlist" id="vServers"><div class="rmsg">Carregando…</div></div>
     </div>
-
-    <div class="panel p-value">
-      <div class="phead"><span class="ico"></span><h3>Cobertura de Proteção</h3><span class="sub">virtual patching · e-mail · cloud</span></div>
-      <div class="assets" style="grid-template-columns:repeat(2,1fr);flex:1;align-content:center">
-        <div class="asset"><div class="ico">🛡️</div><div class="v c-ok" id="adVpOn">—</div><div class="l">Virtual Patching ativo</div></div>
-        <div class="asset"><div class="ico">⚠️</div><div class="v c-high" id="adVpOff">—</div><div class="l">Sem virtual patching</div></div>
-        <div class="asset"><div class="ico">📧</div><div class="v c-ok" id="adMailbox">—</div><div class="l">Mailboxes protegidas</div></div>
-        <div class="asset"><div class="ico">👁️</div><div class="v c-med" id="adShadow">—</div><div class="l">Apps não sancionados</div></div>
-      </div>
+    <div class="panel p-vendpoints">
+      <div class="phead"><span class="ico"></span><h3>Top 10 Endpoints</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vEndpointsLive" style="display:none">● AO VIVO</span></div>
+      <div class="rlist" id="vEndpoints"><div class="rmsg">Carregando…</div></div>
     </div>
-
-    <div class="panel p-roi">
-      <div class="phead"><span class="ico"></span><h3>Cobertura EDR</h3><span class="sub">XDR endpoint sensor</span><span class="livetag" id="edrLive" style="display:none">● AO VIVO</span></div>
-      <div style="display:flex;gap:14px;flex:1;min-height:0;align-items:center">
-        <div style="width:150px"><div class="echart" id="roiGauge"></div></div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:10px">
-          <div class="kpi"><div class="v c-ok" id="adEdr">—</div><div class="l">Endpoints com EDR</div></div>
-          <div class="kpi"><div class="v c-med" id="adEppOnly">—</div><div class="l">Somente EPP (sem sensor)</div></div>
-          <div class="kpi"><div class="v" id="adSanctioned">—</div><div class="l">Apps sancionados</div></div>
-        </div>
-      </div>
+    <div class="panel p-vapps">
+      <div class="phead"><span class="ico"></span><h3>Top 10 Aplicações</h3><span class="sub">indicadores de risco (≈CVEs)</span><span class="livetag" id="vAppsLive" style="display:none">● AO VIVO</span></div>
+      <div class="rlist" id="vApps"><div class="rmsg">Carregando…</div></div>
     </div>
   </section>
 </main>
@@ -824,8 +805,8 @@ function renderIOC(){
 }
 
 /* ---------- screen rotation ---------- */
-const screens=['exec','soc','map','cs'];
-const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],cs:['CUSTOMER SUCCESS','Adoção & Valor Gerado']};
+const screens=['exec','vuln','soc','map'];
+const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],vuln:['VULNERABILITY MANAGEMENT','Vulnerabilidades']};
 let cur=0, paused=false, rotStart=performance.now(), ROT=20000;
 // build dots (pontinhos de navegação) — referência explícita ao elemento #dots
 const navDots = document.getElementById('dots');
@@ -1231,6 +1212,65 @@ function applyAdoption(a){
   }
 }
 
+// ---- Tela Vulnerabilidades (rankings reais; NUNCA zero) ----
+const _VSTATE = {
+  loading:['Carregando…',''], empty:['Nenhum dado encontrado',''],
+  forbidden:['Permissão insuficiente','c-high'], unavailable:['Dados indisponíveis','c-high'],
+  partial:['Resposta parcial','c-med'], stale:['Dados desatualizados','c-med'], failed:['Falha na coleta','c-high'],
+};
+function setPanelState(id, state, extra){
+  const el=document.getElementById(id); if(!el) return;
+  const st=_VSTATE[state]||['—',''];
+  el.innerHTML=`<div class="rmsg ${st[1]}">${_esc(st[0])}${extra?` · ${_esc(extra)}`:''}</div>`;
+}
+function _vSev(level, val){
+  const l=String(level||'').toLowerCase();
+  if(l==='critical'||l==='crit') return 'crit';
+  if(l==='high') return 'high';
+  if(l==='medium'||l==='med') return 'med';
+  if(l==='low') return 'low';
+  return val>=1000?'high':(val>=100?'med':'low');
+}
+function renderRankBars(id, rows, opt){
+  const el=document.getElementById(id); if(!el) return;
+  if(!Array.isArray(rows)||!rows.length){ setPanelState(id,'empty'); return; }
+  const top=rows.slice(0,10);
+  const max=Math.max(1, ...top.map(r=>Number(r[opt.valueKey])||0));
+  el.innerHTML='';
+  top.forEach((r,i)=>{
+    const v=Number(r[opt.valueKey])||0;
+    const cls=_vSev(opt.levelKey&&r[opt.levelKey], v);
+    const pct=Math.max(3, Math.round(v/max*100));
+    const name=_esc(r[opt.labelKey]!=null?r[opt.labelKey]:'—');
+    const sub=(opt.subKey&&r[opt.subKey]!=null)?`<small>${_esc(r[opt.subKey])}</small>`:'';
+    el.insertAdjacentHTML('beforeend',
+      `<div class="rfrow">`+
+      `<span class="rf-name"><b class="rrk">${i+1}</b><span class="rnm">${name}${sub}</span></span>`+
+      `<div class="rf-track"><div class="rf-fill bg-${cls}" style="width:${pct}%"></div></div>`+
+      `<span class="rf-val c-${cls}">${v.toLocaleString('pt-BR')}<small>${_esc(opt.valueLabel||'')}</small></span>`+
+      `</div>`);
+  });
+}
+function _vLive(id,on){ const t=document.getElementById(id); if(t) t.style.display=on?'':'none'; }
+function applyVulnScreen(v){
+  if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
+  const st=(v.metadata&&v.metadata.status)||{};
+  const P=[
+    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'ATIVOS'}],
+    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
+    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
+    ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
+  ];
+  P.forEach(([key,cid,live,opt])=>{
+    const rows=v[key], s=st[key];
+    if(Array.isArray(rows)&&rows.length){ renderRankBars(cid,rows,opt); _vLive(live,true); }
+    else if(s==='forbidden'){ setPanelState(cid,'forbidden','requer Cyber Risk Exposure Management'); _vLive(live,false); }
+    else if(s==='empty'){ setPanelState(cid,'empty'); _vLive(live,false); }
+    else if(s==='ok'){ setPanelState(cid,'empty'); _vLive(live,false); }
+    else { setPanelState(cid,'unavailable'); _vLive(live,false); }
+  });
+}
+
 function applyLive(d){
   if (!d) return;
   applyPosture(d.posture);
@@ -1245,7 +1285,7 @@ function applyLive(d){
   applyIdentity(d.identity);
   applyIoc(d.ioc);
   applyEndpoint(d.endpoint);
-  applyAdoption(d.posture && d.posture.adoption);
+  applyVulnScreen(d.vulnerabilities);
   if (d.posture && d.posture.factors) renderRiskFactors(d.posture.factors);
 }
 
@@ -1270,7 +1310,7 @@ function connectWS(){
   ws.onmessage = (ev)=>{
     try{
       const m = JSON.parse(ev.data);
-      if (m.type === 'posture')      { const pd={posture:m.data}; applyPosture(m.data); applySurface(pd); applyVuln(m.data.vuln); renderRiskFactors(m.data.factors||[]); applyAdoption(m.data.adoption); }
+      if (m.type === 'posture')      { const pd={posture:m.data}; applyPosture(m.data); applySurface(pd); applyVuln(m.data.vuln); renderRiskFactors(m.data.factors||[]); }
       else if (m.type === 'workbench') { applyWorkbench(m.data); applyThreatDet({workbench:m.data}); }
       else if (m.type === 'events')    { applyEvents(m.data); applyThreatDet({events:m.data}); }
       else if (m.type === 'mitre')      applyMitre(m.data);
@@ -1279,6 +1319,7 @@ function connectWS(){
       else if (m.type === 'identity')   applyIdentity(m.data);
       else if (m.type === 'ioc')        applyIoc(m.data);
       else if (m.type === 'endpoint')   applyEndpoint(m.data);
+      else if (m.type === 'vulnerabilities') applyVulnScreen(m.data);
     }catch(e){}
   };
   ws.onclose = ()=> setTimeout(connectWS, 5000);
@@ -1298,8 +1339,6 @@ function boot(){
     reg('threatSpark',sparkOpt());
     reg('vulnDonut',donutOpt());
     reg('trendChart',trendOpt());
-    reg('adoptChart',adoptOpt());
-    reg('roiGauge',roiGaugeOpt());
     renderMitre();
     animateCounts(document.getElementById('exec')); animateBars(document.getElementById('exec'));
     // map
