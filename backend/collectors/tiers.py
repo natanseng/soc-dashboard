@@ -721,6 +721,7 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
                 "level": str(it.get("cveRiskLevel") or "").lower(),
                 "exploit": it.get("globalExploitActivityLevel"),
                 "product": (sw[0].get("name") if sw and isinstance(sw[0], dict) else None),
+                "preventionRules": len(it.get("preventionRules") or []),  # nr de regras de prevencao (virtual patching/IPS)
             })
         rows.sort(key=lambda x: (x["affectedAssets"] or 0), reverse=True)
         out["topCves"] = rows[:10]

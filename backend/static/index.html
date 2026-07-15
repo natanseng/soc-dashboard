@@ -266,6 +266,8 @@ body{
 .rlist .rnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
 .rmsg{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;font-size:13px;letter-spacing:.3px;text-align:center;color:var(--muted);padding:10px}
+.rbadge{font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:5px;margin-left:6px;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;flex-shrink:0}
+.rbadge.on{color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)}
 
 #map.screen{grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px}
 #map .p-rankings{display:flex;flex-direction:column;gap:14px}
@@ -1160,9 +1162,10 @@ function renderRankBars(id, rows, opt){
     const pct=Math.max(3, Math.round(v/max*100));
     const name=_esc(r[opt.labelKey]!=null?r[opt.labelKey]:'—');
     const sub=(opt.subKey&&r[opt.subKey]!=null)?`<small>${_esc(r[opt.subKey])}</small>`:'';
+    const badge=opt.badgeFmt?opt.badgeFmt(r):'';
     el.insertAdjacentHTML('beforeend',
       `<div class="rfrow">`+
-      `<span class="rf-name"><b class="rrk">${i+1}</b><span class="rnm">${name}${sub}</span></span>`+
+      `<span class="rf-name"><b class="rrk">${i+1}</b><span class="rnm">${name}${sub}</span>${badge}</span>`+
       `<div class="rf-track"><div class="rf-fill bg-${cls}" style="width:${pct}%"></div></div>`+
       `<span class="rf-val c-${cls}">${v.toLocaleString('pt-BR')}<small>${_esc(opt.valueLabel||'')}</small></span>`+
       `</div>`);
@@ -1173,7 +1176,7 @@ function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
   const P=[
-    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'ATIVOS'}],
+    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;return n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'<span class="rbadge">sem prevenção</span>';}}],
     ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
