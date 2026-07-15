@@ -930,7 +930,9 @@ function applyPosture(p){
 }
 
 function applyWorkbench(wb){
-  if (!wb) return;
+  // keep-last-good: objeto vazio (wb:counters expirado) NAO deve zerar o painel — mantem o ultimo valor
+  if (!wb || (wb.critical==null && wb.high==null && wb.medium==null && wb.low==null &&
+              wb.open==null && wb.in_progress==null && wb.closed==null)) return;
   const crit = +wb.critical||0, high = +wb.high||0, med = +wb.medium||0, low = +wb.low||0;
   const maxS = Math.max(1, crit, high, med, low);
   _num('wbCrit', crit); _bar('wbCritBar', crit/maxS*100);
