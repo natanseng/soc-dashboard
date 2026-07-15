@@ -263,7 +263,7 @@ body{
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
-.rlist .rnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rlist .rnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
 .rmsg{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;font-size:13px;letter-spacing:.3px;text-align:center;color:var(--muted);padding:10px}
 .rbadge{font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:5px;margin-left:6px;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;flex-shrink:0}
@@ -1176,7 +1176,7 @@ function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
   const P=[
-    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;return n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'<span class="rbadge">sem prevenção</span>';}}],
+    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;return n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'';}}],
     ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
