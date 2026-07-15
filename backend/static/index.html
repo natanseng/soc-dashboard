@@ -558,27 +558,6 @@ function trendOpt(){
      markPoint:{symbol:'pin',symbolSize:32,data:[{type:'max'}],itemStyle:{color:C.high},label:{color:'#fff',fontSize:9,fontWeight:700}}}]};
 }
 
-/* adoption stacked */
-function adoptOpt(){
-  return{grid:{left:124,right:50,top:22,bottom:4},
-   legend:{show:true,top:0,right:0,textStyle:{color:'#8696B8',fontSize:10},itemWidth:10,itemHeight:6,data:['Endpoint','Servidor']},
-   tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:'#0E1525',borderColor:'#243352',textStyle:{color:'#E7EEFB',fontSize:11},valueFormatter:v=>(v==null?'—':v+'%')},
-   xAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'#152037'}},axisLabel:{color:'#5A6B8C',fontSize:9,formatter:'{value}%'}},
-   yAxis:{type:'category',data:[],axisLine:{lineStyle:{color:'#243352'}},axisTick:{show:false},axisLabel:{color:'#C7D3EA',fontSize:10}},
-   series:[
-     {name:'Endpoint',type:'bar',data:[],itemStyle:{color:C.brand,borderRadius:[0,3,3,0]},label:{show:true,position:'right',color:'#8696B8',fontSize:9,fontFamily:'Oxanium',formatter:'{c}%'}},
-     {name:'Servidor',type:'bar',data:[],itemStyle:{color:C.info,borderRadius:[0,3,3,0]},label:{show:true,position:'right',color:'#8696B8',fontSize:9,fontFamily:'Oxanium',formatter:'{c}%'}}
-   ]};
-}
-
-/* roi gauge */
-function roiGaugeOpt(){return{series:[{type:'gauge',startAngle:210,endAngle:-30,min:0,max:100,radius:'94%',center:['50%','56%'],
-  progress:{show:true,width:12,roundCap:true,itemStyle:{color:'#27D98A'}},pointer:{show:false},
-  axisLine:{lineStyle:{width:12,color:[[1,'rgba(255,255,255,.06)']]}},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},
-  title:{offsetCenter:[0,'30%'],color:'#8696B8',fontSize:10,fontFamily:'Oxanium'},
-  detail:{offsetCenter:[0,'-4%'],fontSize:28,fontWeight:800,fontFamily:'Oxanium',color:'#27D98A',formatter:'{value}%'},
-  data:[{value:0,name:'COBERTURA EDR'}]}]};}
-
 /* ---------- dynamic lists ---------- */
 const cves=[
   ['CVE-2024-3094','xz/liblzma backdoor',9.8,'crit'],['CVE-2024-21412','Defender SmartScreen',8.1,'high'],
@@ -1148,68 +1127,6 @@ function applyEndpoint(d){
   if(os.linux) parts.push('Linux '+pct(os.linux));
   if(tp.server) parts.push('Server '+pct(tp.server));
   const sub=document.getElementById('epSub'); if(sub && parts.length) sub.textContent=parts.join(' · ');
-}
-
-// ---- Adoção & Cobertura (securityConfigurationStatus do securityPosture) ----
-const _FEAT_PT = {
-  'anti-malware scans':'Anti-malware','anti-malware':'Anti-malware',
-  'web reputation':'Web Reputation','behavior monitoring':'Monitor. Comportam.',
-  'vulnerability protection':'Virtual Patching','intrusion prevention system (ips)':'IPS',
-  'application control':'Controle de Apps','firewall':'Firewall',
-  'device control':'Controle Dispos.','predictive machine learning':'Machine Learning',
-};
-function _featPt(f){ return _FEAT_PT[String(f||'').toLowerCase()] || f; }
-function applyAdoption(a){
-  if (!a) return;
-  const fmt = v => (v==null ? null : Number(v).toLocaleString('pt-BR'));
-  const set = (id,v)=>{ if(v==null) return; const el=document.getElementById(id); if(el) el.textContent=v; };
-  const agents = a.agents, edr = a.edr;
-  set('adAgents', fmt(agents));
-  if (a.mail_total) set('adMailPct', Math.round(a.mail_enabled/a.mail_total*100)+'%');
-  set('adVerLatest', fmt(a.ver_latest));
-  set('adVerOther',  fmt(a.ver_other));
-  set('adVerOld',    fmt(a.ver_outdated));
-  set('adLegacy',    fmt(a.legacy_os));
-  set('adVpOn',      fmt(a.vp_patched));
-  set('adVpOff',     fmt(a.vp_none));
-  set('adMailbox',   fmt(a.mail_enabled));
-  set('adShadow',    fmt(a.cloud_unsanctioned));
-  set('adEdr',       fmt(edr));
-  if (agents!=null && edr!=null) set('adEppOnly', fmt(Math.max(0, agents-edr)));
-  set('adSanctioned', fmt(a.cloud_sanctioned));
-  // gauge: cobertura EDR (% dos agentes com sensor XDR)
-  if (agents && edr!=null && charts.roiGauge){
-    const pct = Math.round(edr/agents*100);
-    const col = pct>=70 ? C.ok : (pct>=40 ? C.med : C.high);
-    charts.roiGauge.setOption({series:[{progress:{itemStyle:{color:col}},detail:{color:col},data:[{value:pct,name:'COBERTURA EDR'}]}]});
-    const t=document.getElementById('edrLive'); if(t) t.style.display='';
-  }
-  // barras agrupadas: adoção de features Endpoint × Servidor (expõe gaps do parque de servidores)
-  const fe = (a.features && a.features.endpoint) || [];
-  const fs = (a.features && a.features.server) || [];
-  const _rate = (list,name)=>{ const h=list.find(f=>String(f.feature).toLowerCase()===name.toLowerCase()); return (h && h.rate!=null) ? Math.round(h.rate*10)/10 : null; };
-  if ((fe.length || fs.length) && charts.adoptChart){
-    // [rótulo, nome no endpoint, nome no servidor]
-    const pairs = [
-      ['Firewall','Firewall','Firewall'],
-      ['Controle Disp.','Device Control','Device Control'],
-      ['Controle Apps','Application Control','Application Control'],
-      ['Anti-malware','Anti-malware Scans','Anti-malware'],
-      ['Virtual Patch','Vulnerability Protection','Intrusion Prevention System (IPS)'],
-      ['Comportamento','Behavior Monitoring','Behavior Monitoring'],
-    ];
-    const labels=[], ep=[], sv=[];
-    pairs.forEach(([lab,en,svn])=>{
-      const e=_rate(fe,en), s=_rate(fs,svn);
-      if (e==null && s==null) return;
-      labels.push(lab); ep.push(e); sv.push(s);
-    });
-    if (labels.length){
-      labels.reverse(); ep.reverse(); sv.reverse();   // barh: primeiro item no topo
-      charts.adoptChart.setOption({ yAxis:{data:labels}, series:[{data:ep},{data:sv}] });
-      const t=document.getElementById('adoptLive'); if(t) t.style.display='';
-    }
-  }
 }
 
 // ---- Tela Vulnerabilidades (rankings reais; NUNCA zero) ----
