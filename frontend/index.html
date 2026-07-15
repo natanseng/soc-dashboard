@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrendAI Vision One — SOC Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#070B14; --bg2:#0A0F1C; --panel:#0E1525; --panel2:#111A2E;
+  --line:#1B2740; --line2:#243352;
+  --txt:#E7EEFB; --muted:#8696B8; --dim:#5A6B8C;
+  --brand:#E5202E; --brand-soft:#ff5b65;
+  --crit:#FF2E63; --high:#FF8A1E; --med:#FFD23F; --low:#2BD4BF; --info:#5B8DEF;
+  --ok:#27D98A; --bad:#FF2E63;
+  --grid:#152037;
+  --display:'Oxanium',system-ui,sans-serif;
+  --body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 700px at 78% -8%, rgba(229,32,46,.10), transparent 60%),
+    radial-gradient(900px 600px at 8% 110%, rgba(91,141,239,.10), transparent 55%),
+    var(--bg);
+  color:var(--txt); font-family:var(--body); overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+.tnum{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono)}
+
+/* ---------- Top status bar ---------- */
+.topbar{
+  position:fixed; inset:0 0 auto 0; height:64px; z-index:30;
+  display:flex; align-items:center; gap:22px; padding:0 22px;
+  background:linear-gradient(180deg,rgba(10,15,28,.96),rgba(10,15,28,.72));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(8px);
+}
+.brand{display:flex; align-items:center; gap:13px}
+.brand .mark{
+  width:38px;height:38px;border-radius:9px;position:relative;
+  background:conic-gradient(from 220deg,var(--brand),#9a0f18 60%,var(--brand));
+  box-shadow:0 0 0 1px rgba(255,91,101,.4),0 6px 18px rgba(229,32,46,.45);
+  display:grid;place-items:center;
+}
+.brand .mark::before{content:"";position:absolute;inset:7px;border-radius:5px;border:2px solid rgba(255,255,255,.9);clip-path:polygon(0 0,100% 0,100% 62%,50% 100%,0 62%)}
+.brand .nm{line-height:1}
+.brand .nm b{font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:.5px}
+.brand .nm span{display:block;font-size:10.5px;color:var(--muted);letter-spacing:2.5px;margin-top:3px}
+.logo-note{font-size:8.5px;color:var(--dim);border:1px dashed var(--line2);border-radius:5px;padding:2px 6px;margin-left:2px;letter-spacing:.3px}
+
+.screen-title{margin-left:6px}
+.screen-title .k{font-size:10px;letter-spacing:3px;color:var(--brand-soft);font-weight:600}
+.screen-title .t{font-family:var(--display);font-weight:700;font-size:19px;letter-spacing:.3px;line-height:1.05}
+
+.topbar .spacer{flex:1}
+.chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:7px 12px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.015)}
+.chip b{color:var(--txt);font-weight:600}
+.live{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:700;letter-spacing:1.5px;font-size:12px;color:var(--ok)}
+.live .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(39,217,138,.6);animation:pulse 1.6s infinite}
+.live.off{color:var(--crit)}
+.live.off .dot{background:var(--crit);box-shadow:0 0 0 0 rgba(255,46,99,.6)}
+.livetag{font-family:var(--display);font-weight:700;letter-spacing:1px;font-size:9.5px;color:var(--ok);border:1px solid rgba(39,217,138,.4);background:rgba(39,217,138,.08);border-radius:6px;padding:3px 7px;margin-left:auto}
+.phead .sub + .livetag{margin-left:8px}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(39,217,138,.55)}70%{box-shadow:0 0 0 10px rgba(39,217,138,0)}100%{box-shadow:0 0 0 0 rgba(39,217,138,0)}}
+.refresh{position:relative;display:grid;place-items:center;width:42px;height:42px}
+.refresh svg{transform:rotate(-90deg)}
+.refresh .num{position:absolute;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
+.clock{font-family:var(--mono);font-size:15px;font-weight:500;letter-spacing:.5px}
+.clock .d{font-size:10.5px;color:var(--muted);letter-spacing:1px}
+
+/* ---------- Stage / screens ---------- */
+.stage{position:fixed; inset:64px 0 38px 0; overflow:hidden}
+.screen{position:absolute; inset:0; padding:16px 18px; opacity:0; transform:scale(.992) translateY(8px); pointer-events:none; transition:opacity .7s ease,transform .7s ease; display:grid; gap:14px}
+.screen.active{opacity:1; transform:none; pointer-events:auto}
+
+.panel{
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line); border-radius:14px; padding:14px 15px; position:relative; overflow:hidden;
+  min-height:0; display:flex; flex-direction:column;
+}
+.panel::after{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,91,101,.5),transparent)}
+.phead{display:flex;align-items:center;gap:9px;margin-bottom:11px;flex-shrink:0}
+.phead .ico{width:7px;height:18px;border-radius:3px;background:var(--brand);box-shadow:0 0 12px rgba(229,32,46,.7)}
+.phead h3{font-family:var(--display);font-size:13.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.phead .sub{font-size:10.5px;color:var(--dim);margin-left:auto;letter-spacing:.5px}
+
+/* metric helpers */
+.metric .big{font-family:var(--display);font-weight:800;line-height:.9;letter-spacing:-.5px}
+.delta{font-family:var(--mono);font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:3px}
+.delta.up{color:var(--bad)} .delta.dn{color:var(--ok)}
+.delta.up::before{content:"▲"} .delta.dn::before{content:"▼"}
+.label{font-size:10.5px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kpi{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:11px;padding:12px 13px}
+.kpi .v{font-family:var(--display);font-weight:800;font-size:30px;line-height:1}
+.kpi .l{font-size:10px;color:var(--muted);letter-spacing:.8px;margin-top:7px;text-transform:uppercase}
+.kpi .foot{margin-top:8px;font-size:11px;color:var(--dim)}
+
+/* severity bars */
+.sevrow{display:flex;align-items:center;gap:10px;margin:9px 0}
+.sevrow .tag{width:74px;font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.sevrow .track{flex:1;height:10px;border-radius:6px;background:rgba(255,255,255,.05);overflow:hidden}
+.sevrow .fill{height:100%;border-radius:6px;transition:width 1s cubic-bezier(.2,.8,.2,1)}
+.sevrow .n{width:42px;text-align:right;font-family:var(--mono);font-weight:700;font-size:14px}
+.c-crit{color:var(--crit)} .bg-crit{background:linear-gradient(90deg,#8a1838,var(--crit))}
+.c-high{color:var(--high)} .bg-high{background:linear-gradient(90deg,#7a3f0c,var(--high))}
+.c-med{color:var(--med)} .bg-med{background:linear-gradient(90deg,#6b5610,var(--med))}
+.c-low{color:var(--low)} .bg-low{background:linear-gradient(90deg,#125e57,var(--low))}
+.c-info{color:var(--info)} .bg-info{background:linear-gradient(90deg,#2a3f6b,var(--info))}
+.c-ok{color:var(--ok)} .c-bad{color:var(--bad)}
+
+/* status pills row (workbench) */
+.statrow{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:auto}
+.stat{text-align:center;background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:10px;padding:9px 6px}
+.stat .n{font-family:var(--display);font-weight:800;font-size:24px}
+.stat .l{font-size:9.5px;color:var(--muted);letter-spacing:.7px;text-transform:uppercase;margin-top:4px}
+
+/* lists */
+.list{display:flex;flex-direction:column;gap:7px;overflow:hidden}
+.li{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:9px}
+.li .rank{font-family:var(--mono);font-size:11px;color:var(--dim);width:18px}
+.li .nm{flex:1;font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .nm small{display:block;color:var(--dim);font-size:10px;font-weight:400;font-family:var(--mono)}
+.li .sc{font-family:var(--mono);font-weight:700;font-size:13px}
+.li .bdg{font-size:9.5px;font-weight:700;letter-spacing:.5px;padding:2px 7px;border-radius:5px;text-transform:uppercase}
+
+.dot-sev{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* asset grid */
+.assets{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.asset{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:11px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.asset .ico{font-size:17px;opacity:.9}
+.asset .v{font-family:var(--display);font-weight:800;font-size:25px;line-height:1}
+.asset .l{font-size:10px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase}
+
+/* MITRE matrix */
+.mitre{display:flex;gap:6px;overflow:hidden;flex:1}
+.mcol{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.mcol .h{font-size:9px;font-weight:700;letter-spacing:.3px;color:var(--muted);text-transform:uppercase;text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);min-height:26px;display:flex;align-items:center;justify-content:center;line-height:1.1}
+.cell{font-size:9.5px;border-radius:6px;padding:6px 5px;text-align:center;border:1px solid var(--line);line-height:1.15;color:#cdd8ee;position:relative;cursor:default}
+.cell .c{display:block;font-family:var(--mono);font-weight:700;font-size:11px;margin-top:3px}
+.heat-0{background:rgba(255,255,255,.02)}
+.heat-1{background:rgba(91,141,239,.16);border-color:rgba(91,141,239,.35)}
+.heat-2{background:rgba(255,210,63,.16);border-color:rgba(255,210,63,.4)}
+.heat-3{background:rgba(255,138,30,.20);border-color:rgba(255,138,30,.5)}
+.heat-4{background:rgba(255,46,99,.24);border-color:rgba(255,46,99,.6);box-shadow:0 0 14px rgba(255,46,99,.25)}
+
+/* feed */
+.feed{display:flex;flex-direction:column;gap:6px;overflow:hidden;flex:1}
+.fitem{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:7px 10px;border-radius:9px;background:rgba(255,255,255,.02);border:1px solid var(--line);animation:slideIn .5s ease}
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+.fitem .ts{font-family:var(--mono);font-size:10px;color:var(--dim)}
+.fitem .ds{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem .ds b{font-weight:600}
+.fitem .ds small{color:var(--dim);font-family:var(--mono)}
+
+/* attack map */
+.mapwrap{position:relative;width:100%;height:100%;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(120% 120% at 50% 30%,#0b1426,#070b14)}
+#mapCanvas{display:block;width:100%;height:100%}
+.map-ov{position:absolute;pointer-events:none}
+.map-legend{left:16px;bottom:14px;display:flex;gap:14px;font-size:11px;color:var(--muted)}
+.map-legend span{display:flex;align-items:center;gap:6px}
+.map-legend i{width:18px;height:3px;border-radius:2px;display:inline-block}
+.map-stat{top:14px;left:16px;display:flex;gap:10px}
+.map-stat .box{background:rgba(7,11,20,.72);border:1px solid var(--line2);border-radius:10px;padding:8px 13px;backdrop-filter:blur(4px)}
+.map-stat .box .v{font-family:var(--display);font-weight:800;font-size:22px;line-height:1}
+.map-stat .box .l{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
+.demo-badge{position:absolute;top:14px;right:16px;font-size:9.5px;letter-spacing:1.5px;color:var(--med);border:1px solid rgba(255,210,63,.4);background:rgba(255,210,63,.08);border-radius:6px;padding:4px 9px;font-weight:700}
+
+/* gauge container */
+.gauge-wrap{flex:1;position:relative;min-height:0}
+.echart{width:100%;height:100%;min-height:0}
+
+/* bottom nav */
+.navbar{position:fixed;inset:auto 0 0 0;height:38px;z-index:30;display:flex;align-items:center;gap:16px;padding:0 22px;background:linear-gradient(0deg,rgba(10,15,28,.96),rgba(10,15,28,.6));border-top:1px solid var(--line)}
+.dots{display:flex;gap:9px}
+.nav-dot{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);cursor:pointer;letter-spacing:.5px;transition:color .3s}
+.nav-dot .d{width:8px;height:8px;border-radius:50%;background:var(--line2);transition:all .3s}
+.nav-dot.on{color:var(--txt)} .nav-dot.on .d{background:var(--brand);box-shadow:0 0 10px var(--brand)}
+.rot{flex:1;height:3px;background:rgba(255,255,255,.05);border-radius:2px;overflow:hidden;max-width:340px}
+.rot .bar{height:100%;width:0;background:linear-gradient(90deg,var(--brand),var(--brand-soft));border-radius:2px}
+.navbar .hint{font-size:10px;color:var(--dim);letter-spacing:.5px}
+.navbar .hint kbd{font-family:var(--mono);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;font-size:9.5px;color:var(--muted)}
+
+/* layouts per screen */
+#exec{grid-template-columns:1.05fr 1.25fr 1fr;grid-template-rows:1.15fr 1fr 0.95fr;}
+#exec .p-score{grid-column:1;grid-row:1/3}
+#exec .p-threat{grid-column:2;grid-row:1}
+#exec .p-wb{grid-column:3;grid-row:1/3}
+#exec .p-vuln{grid-column:2;grid-row:2}
+#exec .p-surface{grid-column:1;grid-row:3}
+#exec .p-risk{grid-column:2/4;grid-row:3}
+
+#soc{grid-template-columns:1fr 1.5fr 1fr;grid-template-rows:1fr 1.3fr 1fr}
+#soc .p-det{grid-column:1;grid-row:1}
+#soc .p-mitre{grid-column:2;grid-row:1/3}
+#soc .p-feed{grid-column:1;grid-row:2/4}
+#soc .p-trend{grid-column:3;grid-row:1/3}
+#soc .p-ep{grid-column:2;grid-row:3}
+#soc .p-em{grid-column:3;grid-row:3}
+
+#cs{grid-template-columns:repeat(4,1fr);grid-template-rows:1.1fr 1fr}
+#cs .p-adopt{grid-column:1/3;grid-row:1}
+#cs .p-health{grid-column:3/5;grid-row:1}
+#cs .p-value{grid-column:1/3;grid-row:2}
+#cs .p-roi{grid-column:3/5;grid-row:2}
+
+#map.screen{grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px}
+#map .p-rankings{display:flex;flex-direction:column;gap:14px}
+
+@media (max-width:1100px){
+  #exec,#soc,#cs{grid-template-columns:1fr 1fr}
+  #map.screen{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== TOP BAR ===== -->
+<header class="topbar">
+  <div class="brand">
+    <div class="mark"></div>
+    <div class="nm"><b>TrendAI</b><span>VISION ONE · XDR</span></div>
+    <span class="logo-note">logo oficial → /assets</span>
+  </div>
+  <div class="screen-title">
+    <div class="k" id="scrKicker">SECURITY COMMAND CENTER</div>
+    <div class="t" id="scrTitle">Dashboard Executivo</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="chip">REGIÃO <b>US (LATAM)</b></div>
+  <div class="chip">TENANT <b id="tenantName">—</b></div>
+  <div class="live" id="apiState"><span class="dot"></span> LIVE</div>
+  <div class="refresh" title="Atualização a cada 60s">
+    <svg width="42" height="42" viewBox="0 0 42 42">
+      <circle cx="21" cy="21" r="17" fill="none" stroke="#1B2740" stroke-width="3"/>
+      <circle id="refreshArc" cx="21" cy="21" r="17" fill="none" stroke="#E5202E" stroke-width="3" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="0"/>
+    </svg>
+    <span class="num mono" id="refreshNum">60</span>
+  </div>
+  <div class="clock">
+    <span id="clk">--:--:--</span>
+    <span class="d" id="clkDate">--</span>
+  </div>
+</header>
+
+<!-- ===== STAGE ===== -->
+<main class="stage">
+
+  <!-- ===================== EXECUTIVO ===================== -->
+  <section class="screen active" id="exec">
+    <div class="panel p-score">
+      <div class="phead"><span class="ico"></span><h3>Security Posture</h3><span class="sub">ASRM · Risk Index</span><span class="livetag">● AO VIVO</span></div>
+      <div class="gauge-wrap"><div class="echart" id="scoreGauge"></div></div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <div class="kpi" style="flex:1;padding:9px 11px"><div class="l">Exposição</div><div class="v c-high" style="font-size:18px">Médio</div></div>
+        <div class="kpi" style="flex:1;padding:9px 11px"><div class="l">Ataque</div><div class="v c-crit" style="font-size:18px">Alto</div></div>
+        <div class="kpi" style="flex:1;padding:9px 11px"><div class="l">Config.</div><div class="v c-low" style="font-size:18px">Baixo</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-threat">
+      <div class="phead"><span class="ico"></span><h3>Threat Overview</h3><span class="sub">Workbench + XDR</span></div>
+      <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+        <div class="kpi"><div class="v" data-count="247">0</div><div class="l">Eventos · 24h</div><div class="foot"><span class="delta up">12,4%</span> vs ontem</div></div>
+        <div class="kpi"><div class="v" data-count="1684">0</div><div class="l">Eventos · 7 dias</div><div class="foot"><span class="delta dn">3,1%</span> vs semana ant.</div></div>
+        <div class="kpi"><div class="v" data-count="6920">0</div><div class="l">Eventos · 30 dias</div><div class="foot"><span class="delta up">8,7%</span> vs mês ant.</div></div>
+        <div class="kpi"><div class="v c-crit" id="wbTotal" data-count="14">0</div><div class="l">Total Workbench</div><div class="foot c-bad" id="wbCritFoot">4 críticos abertos</div></div>
+      </div>
+      <div style="flex:1;min-height:0;margin-top:10px"><div class="echart" id="threatSpark"></div></div>
+    </div>
+
+    <div class="panel p-wb">
+      <div class="phead"><span class="ico"></span><h3>Workbench</h3><span class="sub">por criticidade</span><span class="livetag">● AO VIVO</span></div>
+      <div class="sevrow"><span class="tag c-crit">Critical</span><div class="track"><div class="fill bg-crit" id="wbCritBar" data-w="80"></div></div><span class="n c-crit" id="wbCrit">4</span></div>
+      <div class="sevrow"><span class="tag c-high">High</span><div class="track"><div class="fill bg-high" id="wbHighBar" data-w="100"></div></div><span class="n c-high" id="wbHigh">5</span></div>
+      <div class="sevrow"><span class="tag c-med">Medium</span><div class="track"><div class="fill bg-med" id="wbMedBar" data-w="60"></div></div><span class="n c-med" id="wbMed">3</span></div>
+      <div class="sevrow"><span class="tag c-low">Low</span><div class="track"><div class="fill bg-low" id="wbLowBar" data-w="40"></div></div><span class="n c-low" id="wbLow">2</span></div>
+      <div class="statrow">
+        <div class="stat"><div class="n" id="wbOpen">14</div><div class="l">Abertos</div></div>
+        <div class="stat"><div class="n c-high" id="wbProg">6</div><div class="l">Em Investig.</div></div>
+        <div class="stat"><div class="n c-ok" id="wbClosed">31</div><div class="l">Fechados</div></div>
+        <div class="stat"><div class="n" style="color:var(--dim)" id="wbStatusTotal">128</div><div class="l">Total (30d)</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-surface">
+      <div class="phead"><span class="ico"></span><h3>Attack Surface</h3><span class="sub">ativos protegidos</span></div>
+      <div class="assets" style="flex:1">
+        <div class="asset"><div class="ico">💻</div><div class="v" data-count="4820">0</div><div class="l">Endpoints</div></div>
+        <div class="asset"><div class="ico">🖥️</div><div class="v" data-count="612">0</div><div class="l">Servidores</div></div>
+        <div class="asset"><div class="ico">☁️</div><div class="v" data-count="148">0</div><div class="l">Workloads</div></div>
+        <div class="asset"><div class="ico">🔑</div><div class="v" data-count="6">0</div><div class="l">Contas Cloud</div></div>
+        <div class="asset"><div class="ico">👤</div><div class="v" data-count="5340">0</div><div class="l">Usuários</div></div>
+        <div class="asset"><div class="ico">✉️</div><div class="v" data-count="5120">0</div><div class="l">E-mails/dia</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-vuln">
+      <div class="phead"><span class="ico"></span><h3>Vulnerability Mgmt</h3><span class="sub">Top CVEs</span></div>
+      <div style="display:flex;gap:14px;flex:1;min-height:0">
+        <div style="width:120px;display:flex;flex-direction:column"><div class="echart" id="vulnDonut"></div></div>
+        <div class="list" style="flex:1" id="cveList"></div>
+      </div>
+    </div>
+
+    <div class="panel p-risk">
+      <div class="phead"><span class="ico"></span><h3>Risk Indicators</h3><span class="sub">maior risco</span></div>
+      <div class="list" style="flex:1" id="riskList"></div>
+    </div>
+  </section>
+
+  <!-- ===================== SOC OPERACIONAL ===================== -->
+  <section class="screen" id="soc">
+    <div class="panel p-det">
+      <div class="phead"><span class="ico"></span><h3>Threat Detection</h3><span class="sub">IOC · tempo real</span></div>
+      <div class="kpis" style="grid-template-columns:repeat(2,1fr);flex:1">
+        <div class="kpi"><div class="v c-crit" data-count="38">0</div><div class="l">Alertas ativos</div></div>
+        <div class="kpi"><div class="v" data-count="412">0</div><div class="l">Detecções XDR</div></div>
+        <div class="kpi"><div class="v c-bad" data-count="1247">0</div><div class="l">IOC detectados</div></div>
+        <div class="kpi"><div class="v c-ok" data-count="1190">0</div><div class="l">IOC bloqueados</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-mitre">
+      <div class="phead"><span class="ico"></span><h3>MITRE ATT&CK</h3><span class="sub">detecções por técnica · 24h</span></div>
+      <div class="mitre" id="mitreGrid"></div>
+    </div>
+
+    <div class="panel p-feed">
+      <div class="phead"><span class="ico"></span><h3>Live Detections</h3><span class="sub" id="feedRate">— /min</span></div>
+      <div class="feed" id="socFeed"></div>
+    </div>
+
+    <div class="panel p-trend">
+      <div class="phead"><span class="ico"></span><h3>Threat Trends</h3><span class="sub">24h · 7d · 30d</span></div>
+      <div style="flex:1;min-height:0"><div class="echart" id="trendChart"></div></div>
+      <div class="panel" style="margin-top:10px;padding:11px 13px;background:rgba(255,255,255,.02)">
+        <div class="phead" style="margin-bottom:9px"><span class="ico" style="background:var(--info);box-shadow:0 0 12px var(--info)"></span><h3 style="font-size:12px">Identity Security</h3></div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px;font-size:12px;color:var(--muted)">
+          <div style="display:flex;justify-content:space-between">Logins suspeitos <b class="mono c-high" data-count="23">0</b></div>
+          <div style="display:flex;justify-content:space-between">Impossible Travel <b class="mono c-crit" data-count="4">0</b></div>
+          <div style="display:flex;justify-content:space-between">Brute Force <b class="mono c-high" data-count="11">0</b></div>
+          <div style="display:flex;justify-content:space-between">Priv. Escalation <b class="mono c-crit" data-count="2">0</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel p-ep">
+      <div class="phead"><span class="ico"></span><h3>Endpoint Security</h3><span class="sub">conectividade</span></div>
+      <div class="statrow" style="grid-template-columns:repeat(5,1fr);margin-top:0;flex:1;align-items:center">
+        <div class="stat"><div class="n c-ok" data-count="4691">0</div><div class="l">Online</div></div>
+        <div class="stat"><div class="n" style="color:var(--dim)" data-count="129">0</div><div class="l">Offline</div></div>
+        <div class="stat"><div class="n c-med" data-count="84">0</div><div class="l">Desatualiz.</div></div>
+        <div class="stat"><div class="n c-high" data-count="37">0</div><div class="l">Sensor Desc.</div></div>
+        <div class="stat"><div class="n c-crit" data-count="9">0</div><div class="l">Sem Comunic.</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-em">
+      <div class="phead"><span class="ico"></span><h3>Email Security</h3><span class="sub">últimas 24h</span></div>
+      <div class="statrow" style="grid-template-columns:repeat(5,1fr);margin-top:0;flex:1;align-items:center">
+        <div class="stat"><div class="n" data-count="5120">0</div><div class="l">Analisados</div></div>
+        <div class="stat"><div class="n c-bad" data-count="214">0</div><div class="l">Maliciosos</div></div>
+        <div class="stat"><div class="n c-high" data-count="156">0</div><div class="l">Phishing</div></div>
+        <div class="stat"><div class="n c-crit" data-count="41">0</div><div class="l">Malware</div></div>
+        <div class="stat"><div class="n c-med" data-count="7">0</div><div class="l">BEC</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CYBER ATTACK MAP ===================== -->
+  <section class="screen" id="map">
+    <div class="mapwrap">
+      <canvas id="mapCanvas"></canvas>
+      <div class="map-ov map-stat">
+        <div class="box"><div class="v c-bad" id="mAttacks">0</div><div class="l">Ataques / min</div></div>
+        <div class="box"><div class="v c-ok" id="mBlocked">0</div><div class="l">Bloqueados</div></div>
+        <div class="box"><div class="v" id="mCountries">0</div><div class="l">Países origem</div></div>
+      </div>
+      <div class="map-ov demo-badge">● DADOS SIMULADOS — DEMO</div>
+      <div class="map-ov map-legend">
+        <span><i style="background:var(--crit)"></i> Critical</span>
+        <span><i style="background:var(--high)"></i> High</span>
+        <span><i style="background:var(--med)"></i> Medium</span>
+        <span><i style="background:var(--info)"></i> Info</span>
+      </div>
+    </div>
+    <div class="p-rankings">
+      <div class="panel" style="flex:1">
+        <div class="phead"><span class="ico"></span><h3>Países Atacantes</h3></div>
+        <div class="list" id="attackerList"></div>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">IPs / domínios</span></div>
+        <div class="list" id="iocList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CUSTOMER SUCCESS ===================== -->
+  <section class="screen" id="cs">
+    <div class="panel p-adopt">
+      <div class="phead"><span class="ico"></span><h3>Adoção da Plataforma</h3><span class="sub">Vision One</span></div>
+      <div style="display:flex;gap:14px;flex:1;min-height:0">
+        <div style="display:grid;grid-template-rows:1fr 1fr;gap:10px;width:180px">
+          <div class="kpi"><div class="v" data-count="11086">0</div><div class="l">Ativos protegidos</div><div class="foot"><span class="delta dn">6,2%</span> crescimento/mês</div></div>
+          <div class="kpi"><div class="v c-ok" data-count="18">0</div><div class="l">Recursos ativos</div><div class="foot" style="color:var(--med)">5 não utilizados</div></div>
+        </div>
+        <div style="flex:1;min-height:0"><div class="echart" id="adoptChart"></div></div>
+      </div>
+    </div>
+
+    <div class="panel p-health">
+      <div class="phead"><span class="ico"></span><h3>Saúde da Implementação</h3></div>
+      <div class="kpis" style="grid-template-columns:repeat(2,1fr);flex:1;align-content:center">
+        <div class="kpi"><div class="v c-ok" data-count="4691">0</div><div class="l">Sensores ativos</div></div>
+        <div class="kpi"><div class="v c-high" data-count="46">0</div><div class="l">Sensores inativos</div></div>
+        <div class="kpi"><div class="v" data-count="9">0</div><div class="l">Integrações OK</div></div>
+        <div class="kpi"><div class="v c-med" data-count="3">0</div><div class="l">Integrações ausentes</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-value">
+      <div class="phead"><span class="ico"></span><h3>Valor Gerado</h3><span class="sub">últimos 30 dias</span></div>
+      <div class="assets" style="grid-template-columns:repeat(2,1fr);flex:1;align-content:center">
+        <div class="asset"><div class="ico">🛡️</div><div class="v c-ok" data-count="6731">0</div><div class="l">Ataques bloqueados</div></div>
+        <div class="asset"><div class="ico">🚫</div><div class="v" data-count="312">0</div><div class="l">Incidentes evitados</div></div>
+        <div class="asset"><div class="ico">🔎</div><div class="v c-high" data-count="1894">0</div><div class="l">Vulns identificadas</div></div>
+        <div class="asset"><div class="ico">👥</div><div class="v" data-count="5340">0</div><div class="l">Usuários protegidos</div></div>
+      </div>
+    </div>
+
+    <div class="panel p-roi">
+      <div class="phead"><span class="ico"></span><h3>ROI Estimado</h3><span class="sub">automação XDR/MDR</span></div>
+      <div style="display:flex;gap:14px;flex:1;min-height:0;align-items:center">
+        <div style="width:150px"><div class="echart" id="roiGauge"></div></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+          <div class="kpi"><div class="v c-ok" data-count="1240">0</div><div class="l">Horas economizadas / mês</div></div>
+          <div class="kpi"><div class="v" style="font-size:24px">−<span data-count="62">0</span>%</div><div class="l">Redução de risco</div></div>
+          <div class="kpi"><div class="v" style="font-size:24px">−<span data-count="71">0</span>%</div><div class="l">Redução de incidentes</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== BOTTOM NAV ===== -->
+<nav class="navbar">
+  <div class="dots" id="dots"></div>
+  <div class="rot"><div class="bar" id="rotBar"></div></div>
+  <span class="hint">auto-rotação 20s · <kbd>←</kbd><kbd>→</kbd> navegar · <kbd>espaço</kbd> pausar · <kbd>F</kbd> fullscreen</span>
+</nav>
+
+<script>
+"use strict";
+const C={crit:'#FF2E63',high:'#FF8A1E',med:'#FFD23F',low:'#2BD4BF',info:'#5B8DEF',ok:'#27D98A',brand:'#E5202E',muted:'#8696B8',line:'#1B2740',txt:'#E7EEFB',dim:'#5A6B8C'};
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=a=>a[ri(0,a.length-1)];
+
+/* ---------- clock + refresh countdown ---------- */
+let countdown=60;
+function tick(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  clk.textContent=`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  clkDate.textContent=d.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}).toUpperCase();
+  countdown--;
+  if(countdown<=0){countdown=60;refreshData();}
+  refreshNum.textContent=countdown;
+  const circ=2*Math.PI*17;
+  refreshArc.style.strokeDashoffset=circ*(1-countdown/60);
+}
+setInterval(tick,1000); tick();
+
+/* ---------- count-up animation ---------- */
+function animateCounts(scope){
+  scope.querySelectorAll('[data-count]').forEach(el=>{
+    const target=+el.dataset.count, dur=1100, t0=performance.now();
+    (function step(t){
+      const k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3);
+      el.textContent=Math.round(target*e).toLocaleString('pt-BR');
+      if(k<1)requestAnimationFrame(step);
+    })(t0);
+  });
+}
+function animateBars(scope){
+  scope.querySelectorAll('.fill[data-w]').forEach(el=>{setTimeout(()=>el.style.width=el.dataset.w+'%',60)});
+}
+
+/* ---------- ECharts base ---------- */
+const charts={};
+const baseGrid={left:6,right:10,top:18,bottom:18,containLabel:true};
+function reg(id,opt){const el=document.getElementById(id);if(!el)return;const c=echarts.init(el,null,{renderer:'canvas'});c.setOption(opt);charts[id]=c;}
+addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+
+/* Security score gauge */
+function scoreGaugeOpt(v){return{series:[{type:'gauge',startAngle:210,endAngle:-30,min:0,max:100,radius:'92%',center:['50%','58%'],
+  progress:{show:true,width:14,roundCap:true,itemStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#FF2E63'},{offset:.5,color:'#FF8A1E'},{offset:1,color:'#27D98A'}])}},
+  pointer:{show:true,length:'58%',width:5,itemStyle:{color:'#E7EEFB'}},
+  axisLine:{lineStyle:{width:14,color:[[1,'rgba(255,255,255,.06)']]}},
+  axisTick:{show:false},splitLine:{distance:-18,length:10,lineStyle:{color:'#243352',width:1}},
+  axisLabel:{distance:-2,color:'#5A6B8C',fontSize:9},
+  anchor:{show:true,size:10,itemStyle:{color:'#E7EEFB'}},
+  title:{offsetCenter:[0,'26%'],color:'#8696B8',fontSize:11,fontFamily:'Oxanium'},
+  detail:{valueAnimation:true,offsetCenter:[0,'-2%'],fontSize:42,fontWeight:800,fontFamily:'Oxanium',color:'#E7EEFB',formatter:'{value}'},
+  data:[{value:v,name:'RISK INDEX (0–100)'}]}]};}
+
+/* sparkline area (exec threats) */
+function sparkOpt(){
+  const days=[...Array(30)].map((_,i)=>`D-${29-i}`);
+  const base=[]; let y=160; for(let i=0;i<30;i++){y+=rnd(-22,26);y=Math.max(90,Math.min(260,y));base.push(Math.round(y));}
+  return{grid:{left:4,right:6,top:10,bottom:6,containLabel:false},xAxis:{type:'category',data:days,show:false},yAxis:{type:'value',show:false},
+   tooltip:{trigger:'axis',backgroundColor:'#0E1525',borderColor:'#243352',textStyle:{color:'#E7EEFB',fontSize:11}},
+   series:[{type:'line',data:base,smooth:true,symbol:'none',lineStyle:{color:'#FF8A1E',width:2},
+     areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(255,138,30,.35)'},{offset:1,color:'rgba(255,138,30,0)'}])}}]};
+}
+
+/* vuln donut */
+function donutOpt(){return{series:[{type:'pie',radius:['58%','86%'],center:['50%','50%'],avoidLabelOverlap:false,
+  label:{show:true,position:'center',formatter:'{total|3 481}\n{lbl|CVEs}',rich:{total:{fontFamily:'Oxanium',fontWeight:800,fontSize:22,color:'#E7EEFB'},lbl:{fontSize:10,color:'#8696B8',padding:[3,0,0,0]}}},
+  labelLine:{show:false},
+  data:[{value:142,name:'Critical',itemStyle:{color:C.crit}},{value:631,name:'High',itemStyle:{color:C.high}},{value:1208,name:'Medium',itemStyle:{color:C.med}},{value:1500,name:'Low',itemStyle:{color:C.low}}]}]};}
+
+/* threat trend multi */
+function trendOpt(){
+  const h=[...Array(24)].map((_,i)=>`${i}h`);
+  const s=n=>[...Array(24)].map(()=>ri(8,n));
+  return{grid:baseGrid,legend:{show:true,top:0,right:0,textStyle:{color:'#8696B8',fontSize:10},itemWidth:10,itemHeight:6,data:['Endpoint','Network','Email','Identity']},
+   tooltip:{trigger:'axis',backgroundColor:'#0E1525',borderColor:'#243352',textStyle:{color:'#E7EEFB',fontSize:11}},
+   xAxis:{type:'category',data:h,axisLine:{lineStyle:{color:'#243352'}},axisLabel:{color:'#5A6B8C',fontSize:9,interval:3}},
+   yAxis:{type:'value',splitLine:{lineStyle:{color:'#152037'}},axisLabel:{color:'#5A6B8C',fontSize:9}},
+   series:[
+     {name:'Endpoint',type:'line',smooth:true,symbol:'none',data:s(70),lineStyle:{color:C.high,width:2},areaStyle:{color:'rgba(255,138,30,.10)'}},
+     {name:'Network',type:'line',smooth:true,symbol:'none',data:s(55),lineStyle:{color:C.info,width:2},areaStyle:{color:'rgba(91,141,239,.10)'}},
+     {name:'Email',type:'line',smooth:true,symbol:'none',data:s(40),lineStyle:{color:C.med,width:2}},
+     {name:'Identity',type:'line',smooth:true,symbol:'none',data:s(28),lineStyle:{color:C.crit,width:2}}]};
+}
+
+/* adoption stacked */
+function adoptOpt(){
+  const m=['Jan','Fev','Mar','Abr','Mai','Jun'];
+  return{grid:baseGrid,legend:{show:true,top:0,right:0,textStyle:{color:'#8696B8',fontSize:10},itemWidth:10,itemHeight:6},
+   tooltip:{trigger:'axis',backgroundColor:'#0E1525',borderColor:'#243352',textStyle:{color:'#E7EEFB',fontSize:11}},
+   xAxis:{type:'category',data:m,axisLine:{lineStyle:{color:'#243352'}},axisLabel:{color:'#5A6B8C',fontSize:10}},
+   yAxis:{type:'value',splitLine:{lineStyle:{color:'#152037'}},axisLabel:{color:'#5A6B8C',fontSize:9}},
+   series:[
+     {name:'Endpoints',type:'bar',stack:'a',data:[4100,4280,4400,4560,4700,4820],itemStyle:{color:C.brand,borderRadius:[0,0,0,0]}},
+     {name:'Servidores',type:'bar',stack:'a',data:[520,540,560,575,595,612],itemStyle:{color:C.high}},
+     {name:'Usuários',type:'bar',stack:'a',data:[4800,4950,5050,5180,5260,5340],itemStyle:{color:C.info,borderRadius:[4,4,0,0]}}]};
+}
+
+/* roi gauge */
+function roiGaugeOpt(){return{series:[{type:'gauge',startAngle:210,endAngle:-30,min:0,max:100,radius:'94%',center:['50%','56%'],
+  progress:{show:true,width:12,roundCap:true,itemStyle:{color:'#27D98A'}},pointer:{show:false},
+  axisLine:{lineStyle:{width:12,color:[[1,'rgba(255,255,255,.06)']]}},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},
+  title:{offsetCenter:[0,'30%'],color:'#8696B8',fontSize:10,fontFamily:'Oxanium'},
+  detail:{offsetCenter:[0,'-4%'],fontSize:28,fontWeight:800,fontFamily:'Oxanium',color:'#27D98A',formatter:'{value}%'},
+  data:[{value:88,name:'EFICIÊNCIA SOC'}]}]};}
+
+/* ---------- dynamic lists ---------- */
+const cves=[
+  ['CVE-2024-3094','xz/liblzma backdoor',9.8,'crit'],['CVE-2024-21412','Defender SmartScreen',8.1,'high'],
+  ['CVE-2023-34362','MOVEit Transfer',9.8,'crit'],['CVE-2024-1709','ScreenConnect auth bypass',10.0,'crit'],
+  ['CVE-2023-4966','Citrix Bleed',9.4,'crit'],['CVE-2024-23897','Jenkins file read',9.8,'crit'],
+  ['CVE-2023-46604','ActiveMQ RCE',10.0,'crit'],['CVE-2024-27198','TeamCity auth bypass',9.8,'crit'],
+  ['CVE-2023-22515','Confluence privesc',10.0,'crit'],['CVE-2024-21887','Ivanti Connect',9.1,'crit']];
+function renderCVE(){
+  cveList.innerHTML='';
+  cves.slice(0,6).forEach((c,i)=>{
+    cveList.insertAdjacentHTML('beforeend',
+    `<div class="li"><span class="rank">${String(i+1).padStart(2,'0')}</span>
+      <span class="dot-sev" style="background:var(--${c[3]})"></span>
+      <span class="nm">${c[1]}<small>${c[0]}</small></span>
+      <span class="sc c-${c[3]}">${c[2].toFixed(1)}</span></div>`);
+  });
+}
+const riskEnt=[
+  ['j.almeida','Diretoria Financeira','user',94,'crit'],['SRV-DB-PROD-04','Servidor SQL · DMZ','dev',91,'crit'],
+  ['m.santos','TI · Admin Domínio','user',88,'high'],['WKS-RH-217','Estação · RH','dev',83,'high'],
+  ['svc_backup','Conta de serviço','user',79,'high'],['SRV-WEB-08','Web · Internet-facing','dev',76,'high']];
+function renderRisk(){
+  riskList.innerHTML='';
+  riskEnt.forEach(e=>{
+    riskList.insertAdjacentHTML('beforeend',
+    `<div class="li"><span style="font-size:14px">${e[2]==='user'?'👤':'🖥️'}</span>
+      <span class="nm">${e[0]}<small>${e[1]}</small></span>
+      <span class="bdg" style="background:rgba(255,46,99,.15);color:var(--${e[4]})">RISK ${e[3]}</span></div>`);
+  });
+}
+
+/* ---------- MITRE matrix ---------- */
+const tactics=[
+  ['Initial Access',['Phishing','Valid Accts','Exploit Public']],
+  ['Execution',['Cmd/Script','User Exec','WMI']],
+  ['Persistence',['Scheduled Task','Accounts','Boot/Logon']],
+  ['Priv. Esc.',['Token Manip.','Valid Accts','Exploit']],
+  ['Defense Evasion',['Obfuscation','Disable Tools','Masquerade']],
+  ['Cred. Access',['Brute Force','LSASS','Cred Dump']],
+  ['Lateral Mov.',['Remote Svcs','SMB/Admin$','RDP']],
+  ['Exfiltration',['C2 Channel','Web Service','DNS']]];
+function renderMitre(){
+  mitreGrid.innerHTML='';
+  tactics.forEach(([tac,techs])=>{
+    let col=`<div class="mcol"><div class="h">${tac}</div>`;
+    techs.forEach(t=>{
+      const n=ri(0,42), heat=n===0?0:n<5?1:n<14?2:n<28?3:4;
+      col+=`<div class="cell heat-${heat}">${t}<span class="c">${n}</span></div>`;
+    });
+    mitreGrid.insertAdjacentHTML('beforeend',col+'</div>');
+  });
+}
+
+/* ---------- SOC live feed ---------- */
+const sevList=['crit','high','high','med','med','med','info','info'];
+const detTypes=['Suspicious PowerShell','Credential Dumping (LSASS)','Cobalt Strike Beacon','Mimikatz Execution','DNS Tunneling','Phishing URL Click','Ransomware Behavior','Lateral Movement (SMB)','Impossible Travel','Privilege Escalation','Malicious Macro','C2 Communication','Brute Force RDP','Web Shell Upload'];
+const hosts=['WKS-FIN-04','SRV-DB-PROD-02','WKS-RH-217','SRV-WEB-08','LT-DIR-11','WKS-TI-330','SRV-APP-15','WKS-JUR-09'];
+let feedCount=0,feedWindow=[];
+function feedItem(){
+  const sev=pick(sevList), t=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  const el=document.createElement('div'); el.className='fitem';
+  el.innerHTML=`<span class="dot-sev" style="background:var(--${sev})"></span>
+    <span class="ds"><b class="c-${sev}">${pick(detTypes)}</b> <small>· ${pick(hosts)}</small></span>
+    <span class="ts">${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}</span>`;
+  socFeed.prepend(el);
+  while(socFeed.children.length>9)socFeed.lastChild.remove();
+  feedCount++; feedWindow.push(Date.now());
+  feedWindow=feedWindow.filter(x=>Date.now()-x<60000);
+  feedRate.textContent=feedWindow.length+' /min';
+}
+
+/* ---------- Attack map engine ---------- */
+const cvs=document.getElementById('mapCanvas'); const ctx=cvs.getContext('2d');
+let W=0,H=0,DPR=Math.min(2.5,window.devicePixelRatio||1);
+function sizeMap(){
+  const r=cvs.getBoundingClientRect(); W=r.width; H=r.height;
+  cvs.width=W*DPR; cvs.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+const proj=(lat,lon)=>({x:(lon+180)/360*W, y:(90-lat)/180*H});
+// continent blobs (lat,lon,sigmaLat,sigmaLon,strength) for dotted-world look
+const blobs=[
+  [54,-100,17,26,1],[60,-115,12,16,.9],[40,-95,12,20,1],   // N America
+  [-10,-58,18,15,1],[-25,-60,12,10,.9],                     // S America
+  [50,12,12,20,1],[58,28,9,16,.8],                          // Europe
+  [8,20,16,22,1],[-12,25,16,16,1],[30,8,8,12,.8],           // Africa
+  [55,90,16,40,1],[35,100,16,30,1],[22,78,11,12,1],         // Asia
+  [12,105,10,14,.9],[-2,118,9,16,.9],                       // SE Asia
+  [-25,134,11,16,1]                                          // Australia
+];
+let dots=[];
+function buildDots(){
+  dots=[]; const stepLat=2.6, stepLon=2.6;
+  for(let lat=-58;lat<=78;lat+=stepLat){
+    for(let lon=-170;lon<=180;lon+=stepLon){
+      let s=0;
+      for(const b of blobs){
+        const dl=(lat-b[0])/b[2], dn=(lon-b[1])/b[3];
+        s=Math.max(s,b[4]*Math.exp(-(dl*dl+dn*dn)/2));
+      }
+      if(s>0.34){const p=proj(lat,lon);dots.push({x:p.x,y:p.y,a:Math.min(.55,s*.6),s});}
+    }
+  }
+}
+const cities={
+  Moscow:[55.75,37.6],Beijing:[39.9,116.4],Shanghai:[31.2,121.5],Pyongyang:[39,125.7],
+  Tehran:[35.7,51.4],Lagos:[6.5,3.4],Kyiv:[50.45,30.5],Bucharest:[44.4,26.1],
+  Hanoi:[21,105.8],Mumbai:[19.07,72.9],Amsterdam:[52.37,4.9],SaoPaulo:[-23.55,-46.63],
+  Brasilia:[-15.8,-47.9],RiodeJaneiro:[-22.9,-43.2],Recife:[-8.05,-34.9],Porto:[-30.0,-51.2],
+  Frankfurt:[50.1,8.7],Singapore:[1.35,103.8],Istanbul:[41,28.9],SeoulSK:[37.5,127]
+};
+const attackers=['Moscow','Beijing','Shanghai','Pyongyang','Tehran','Lagos','Kyiv','Bucharest','Hanoi','Mumbai','Amsterdam','Frankfurt','Istanbul'];
+const targets=['SaoPaulo','Brasilia','RiodeJaneiro','Recife','Porto','SaoPaulo','SaoPaulo','Brasilia'];
+const sevColor={crit:C.crit,high:C.high,med:C.med,info:C.info};
+let arcs=[],ripples=[];
+function spawnArc(){
+  const oName=pick(attackers), dName=pick(targets);
+  const o=cities[oName], d=cities[dName];
+  if(!o||!d)return;
+  const a=proj(o[0],o[1]), b=proj(d[0],d[1]);
+  const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+  const dist=Math.hypot(b.x-a.x,b.y-a.y);
+  const lift=Math.min(220,dist*0.5+40);
+  const cx=mx, cy=my-lift;
+  const sev=pick(['crit','high','high','med','med','info']);
+  arcs.push({a,b,cx,cy,t:0,sp:rnd(.006,.012),col:sevColor[sev],sev,trail:rnd(.16,.28)});
+  // map stats + rankings + ticker
+  bumpAttacker(oName); attacksMin++; if(Math.random()<.94)blockedTot++;
+}
+let attacksMin=0,blockedTot=0;
+const attackerCount={};
+function bumpAttacker(n){attackerCount[n]=(attackerCount[n]||0)+1;}
+function bez(p0,p1,p2,t){const u=1-t;return{x:u*u*p0.x+2*u*t*p1.x+t*t*p2.x,y:u*u*p0.y+2*u*t*p1.y+t*t*p2.y};}
+function drawMap(){
+  ctx.clearRect(0,0,W,H);
+  // graticule
+  ctx.strokeStyle='rgba(91,141,239,.05)';ctx.lineWidth=1;
+  for(let lon=-150;lon<=180;lon+=30){const p1=proj(85,lon),p2=proj(-60,lon);ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();}
+  for(let lat=-45;lat<=75;lat+=30){const p1=proj(lat,-180),p2=proj(lat,180);ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();}
+  // land dots
+  for(const dt of dots){ctx.beginPath();ctx.fillStyle=`rgba(120,150,200,${dt.a})`;ctx.arc(dt.x,dt.y,dt.s>.7?1.5:1.1,0,7);ctx.fill();}
+  // arcs
+  for(const ar of arcs){
+    const segs=46;
+    ctx.lineWidth=1.6;
+    const headT=ar.t, tailT=Math.max(0,ar.t-ar.trail);
+    ctx.beginPath();
+    for(let i=0;i<=segs;i++){
+      const tt=tailT+(headT-tailT)*(i/segs);
+      const p=bez(ar.a,{x:ar.cx,y:ar.cy},ar.b,tt);
+      i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);
+    }
+    const g=ctx.createLinearGradient(ar.a.x,ar.a.y,ar.b.x,ar.b.y);
+    g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,ar.col);
+    ctx.strokeStyle=g;ctx.shadowColor=ar.col;ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;
+    // head
+    const hp=bez(ar.a,{x:ar.cx,y:ar.cy},ar.b,Math.min(1,headT));
+    ctx.beginPath();ctx.fillStyle='#fff';ctx.arc(hp.x,hp.y,2.1,0,7);ctx.fill();
+    ctx.beginPath();ctx.fillStyle=ar.col;ctx.globalAlpha=.5;ctx.arc(hp.x,hp.y,4.5,0,7);ctx.fill();ctx.globalAlpha=1;
+    // origin marker
+    ctx.beginPath();ctx.fillStyle=ar.col;ctx.globalAlpha=.7;ctx.arc(ar.a.x,ar.a.y,2,0,7);ctx.fill();ctx.globalAlpha=1;
+    ar.t+=ar.sp;
+    if(ar.t>=1+ar.trail){ripples.push({x:ar.b.x,y:ar.b.y,r:0,col:ar.col});}
+  }
+  arcs=arcs.filter(a=>a.t<1+a.trail);
+  // ripples (impacts)
+  for(const rp of ripples){
+    ctx.beginPath();ctx.strokeStyle=rp.col;ctx.globalAlpha=Math.max(0,1-rp.r/26);ctx.lineWidth=2;
+    ctx.arc(rp.x,rp.y,rp.r,0,7);ctx.stroke();ctx.globalAlpha=1;rp.r+=0.7;
+  }
+  ripples=ripples.filter(r=>r.r<26);
+  // target glow
+  ['SaoPaulo','Brasilia'].forEach(n=>{const p=proj(cities[n][0],cities[n][1]);
+    ctx.beginPath();ctx.fillStyle='rgba(39,217,138,.9)';ctx.arc(p.x,p.y,2.6,0,7);ctx.fill();
+    ctx.beginPath();ctx.strokeStyle='rgba(39,217,138,.35)';ctx.lineWidth=1;ctx.arc(p.x,p.y,7,0,7);ctx.stroke();});
+  requestAnimationFrame(drawMap);
+}
+// rankings + ioc lists
+const flag={Moscow:'🇷🇺',Beijing:'🇨🇳',Shanghai:'🇨🇳',Pyongyang:'🇰🇵',Tehran:'🇮🇷',Lagos:'🇳🇬',Kyiv:'🇺🇦',Bucharest:'🇷🇴',Hanoi:'🇻🇳',Mumbai:'🇮🇳',Amsterdam:'🇳🇱',Frankfurt:'🇩🇪',Istanbul:'🇹🇷'};
+const cName={Moscow:'Rússia',Beijing:'China',Shanghai:'China',Pyongyang:'Coreia do N.',Tehran:'Irã',Lagos:'Nigéria',Kyiv:'Ucrânia',Bucharest:'Romênia',Hanoi:'Vietnã',Mumbai:'Índia',Amsterdam:'Holanda',Frankfurt:'Alemanha',Istanbul:'Turquia'};
+function renderAttackers(){
+  const agg={};
+  Object.entries(attackerCount).forEach(([k,v])=>{const c=cName[k]||k;agg[c]=(agg[c]||0)+v;});
+  const top=Object.entries(agg).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const fl={'Rússia':'🇷🇺','China':'🇨🇳','Coreia do N.':'🇰🇵','Irã':'🇮🇷','Nigéria':'🇳🇬','Ucrânia':'🇺🇦','Romênia':'🇷🇴','Vietnã':'🇻🇳','Índia':'🇮🇳','Holanda':'🇳🇱','Alemanha':'🇩🇪','Turquia':'🇹🇷'};
+  const max=top.length?top[0][1]:1;
+  attackerList.innerHTML='';
+  top.forEach((e,i)=>{
+    attackerList.insertAdjacentHTML('beforeend',
+    `<div class="li"><span class="rank">${i+1}</span><span style="font-size:15px">${fl[e[0]]||'🏴'}</span>
+      <span class="nm">${e[0]}</span>
+      <span class="sc c-high">${e[1]}</span></div>`);
+  });
+}
+const iocs=[['185.220.101.47','TOR exit · C2',312,'crit'],['45.95.147.236','Bulletproof host',221,'crit'],['malware-delivery[.]ru','Dropper domain',198,'high'],['phish-login[.]com','Phishing kit',176,'high'],['91.219.236.18','Scanner/bruteforce',154,'high'],['cdn-update[.]xyz','Fake CDN / C2',132,'med']];
+function renderIOC(){
+  iocList.innerHTML='';
+  iocs.forEach((c,i)=>{
+    iocList.insertAdjacentHTML('beforeend',
+    `<div class="li"><span class="rank">${i+1}</span>
+      <span class="dot-sev" style="background:var(--${c[3]})"></span>
+      <span class="nm mono" style="font-size:11px">${c[0]}<small style="font-family:var(--body)">${c[1]}</small></span>
+      <span class="sc c-${c[3]}">${c[2]}</span></div>`);
+  });
+}
+
+/* ---------- screen rotation ---------- */
+const screens=['exec','soc','map','cs'];
+const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],cs:['CUSTOMER SUCCESS','Adoção & Valor Gerado']};
+let cur=0, paused=false, rotStart=performance.now(), ROT=20000;
+// build dots
+screens.forEach((s,i)=>{
+  const d=document.createElement('div'); d.className='nav-dot'+(i===0?' on':'');
+  d.innerHTML=`<span class="d"></span>${meta[s][1].split(' ')[0]}`;
+  d.onclick=()=>go(i); dots.appendChild(d);
+});
+function go(i){
+  cur=(i+screens.length)%screens.length; rotStart=performance.now();
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-dot').forEach(d=>d.classList.remove('on'));
+  const sc=document.getElementById(screens[cur]); sc.classList.add('active');
+  dots.children[cur].classList.add('on');
+  scrKicker.textContent=meta[screens[cur]][0]; scrTitle.textContent=meta[screens[cur]][1];
+  animateCounts(sc); animateBars(sc);
+  Object.values(charts).forEach(c=>c.resize());
+}
+function rotLoop(t){
+  if(!paused){
+    const k=(t-rotStart)/ROT; rotBar.style.width=Math.min(100,k*100)+'%';
+    if(k>=1)go(cur+1);
+  } else rotBar.style.width='100%';
+  requestAnimationFrame(rotLoop);
+}
+addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight')go(cur+1);
+  else if(e.key==='ArrowLeft')go(cur-1);
+  else if(e.key===' '){e.preventDefault();paused=!paused;if(!paused)rotStart=performance.now();}
+  else if(e.key.toLowerCase()==='f'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}
+});
+document.querySelector('.stage').addEventListener('mouseenter',()=>paused=true);
+document.querySelector('.stage').addEventListener('mouseleave',()=>{if(paused){paused=false;rotStart=performance.now();}});
+
+/* ---------- 60s data refresh ---------- */
+function refreshData(){
+  // widgets ainda simulados (Fase 2+): re-randomiza para manter o painel "vivo"
+  renderMitre();
+  charts.threatSpark&&charts.threatSpark.setOption(sparkOpt());
+  charts.trendChart&&charts.trendChart.setOption(trendOpt());
+  // widgets REAIS (Risk Index + Workbench): busca da API
+  pullLive();
+  const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
+}
+
+/* ======================================================
+   CAMADA DE DADOS REAIS — Vision One via backend FastAPI
+   Liga: Risk Index (gauge) + Workbench (severidades/status)
+   Config por URL: ?tenant=TM-LAR&api=http://host:8000
+   ====================================================== */
+const _params  = new URLSearchParams(location.search);
+const TENANT   = _params.get('tenant') || 'TM-LAR';
+// API_BASE vazio = mesma origem (produção via proxy). Em dev (porta 5173 ou file://) usa :8000.
+const API_BASE = _params.get('api') ||
+  (((location.port === '8000' || location.port === '') && location.protocol !== 'file:') ? '' : 'http://localhost:8000');
+const WS_BASE  = API_BASE
+  ? API_BASE.replace(/^http/, 'ws')
+  : ((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
+
+let lastLive = null;
+
+function setTenantLabel(){
+  const el = document.getElementById('tenantName');
+  if (el) el.textContent = TENANT;
+}
+
+function setApiState(ok, msg){
+  const pill = document.getElementById('apiState');
+  if (!pill) return;
+  pill.classList.toggle('off', !ok);
+  const t = new Date().toLocaleTimeString('pt-BR');
+  pill.innerHTML = ok ? '<span class="dot"></span> AO VIVO · ' + t
+                      : '<span class="dot"></span> SEM CONEXÃO';
+  pill.title = ok ? ('Atualizado ' + t) : ('Falha ao consultar a API: ' + (msg || ''));
+}
+
+function _num(id, v){ const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString('pt-BR'); }
+function _bar(id, pct){ const el = document.getElementById(id); if (el) el.style.width = Math.max(2, Math.min(100, pct)) + '%'; }
+function _count(id, v){ const el = document.getElementById(id); if (el){ el.dataset.count = v; el.textContent = Number(v || 0).toLocaleString('pt-BR'); } }
+
+// aceita risk_index (REST) ou riskIndex (WebSocket)
+function applyPosture(p){
+  if (!p) return;
+  const v = parseFloat(p.risk_index != null ? p.risk_index : p.riskIndex);
+  if (Number.isFinite(v) && charts.scoreGauge){
+    charts.scoreGauge.setOption({series:[{data:[{value: Math.round(v*10)/10, name:'RISK INDEX (0–100)'}]}]});
+  }
+}
+
+function applyWorkbench(wb){
+  if (!wb) return;
+  const crit = +wb.critical||0, high = +wb.high||0, med = +wb.medium||0, low = +wb.low||0;
+  const maxS = Math.max(1, crit, high, med, low);
+  _num('wbCrit', crit); _bar('wbCritBar', crit/maxS*100);
+  _num('wbHigh', high); _bar('wbHighBar', high/maxS*100);
+  _num('wbMed',  med);  _bar('wbMedBar',  med/maxS*100);
+  _num('wbLow',  low);  _bar('wbLowBar',  low/maxS*100);
+  const open = +wb.open||0, prog = +wb.in_progress||0, closed = +wb.closed||0;
+  _num('wbOpen', open); _num('wbProg', prog); _num('wbClosed', closed);
+  _num('wbStatusTotal', open + prog + closed);
+  const total = crit + high + med + low;
+  _count('wbTotal', total);
+  const foot = document.getElementById('wbCritFoot');
+  if (foot) foot.textContent = crit + (crit === 1 ? ' crítico' : ' críticos');
+}
+
+function applyLive(d){ if (!d) return; applyPosture(d.posture); applyWorkbench(d.workbench); }
+
+async function pullLive(){
+  try{
+    const r = await fetch(API_BASE + '/api/' + encodeURIComponent(TENANT) + '/overview', {cache:'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    lastLive = d;
+    applyLive(d);
+    setApiState(true);
+  }catch(err){
+    setApiState(false, err && err.message);
+  }
+}
+
+// WebSocket: deltas em tempo real entre os refreshes de 60s
+function connectWS(){
+  let ws;
+  try{ ws = new WebSocket(WS_BASE + '/ws/' + encodeURIComponent(TENANT)); }
+  catch(e){ return; }
+  ws.onmessage = (ev)=>{
+    try{
+      const m = JSON.parse(ev.data);
+      if (m.type === 'posture')        applyPosture(m.data);
+      else if (m.type === 'workbench') applyWorkbench(m.data);
+    }catch(e){}
+  };
+  ws.onclose = ()=> setTimeout(connectWS, 5000);
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+}
+
+function initLive(){
+  setTenantLabel();
+  pullLive();    // primeira carga imediata
+  connectWS();   // deltas ao vivo
+}
+
+/* ---------- boot ---------- */
+function boot(){
+  reg('scoreGauge',scoreGaugeOpt(67));
+  reg('threatSpark',sparkOpt());
+  reg('vulnDonut',donutOpt());
+  reg('trendChart',trendOpt());
+  reg('adoptChart',adoptOpt());
+  reg('roiGauge',roiGaugeOpt());
+  renderCVE(); renderRisk(); renderMitre(); renderIOC();
+  animateCounts(document.getElementById('exec')); animateBars(document.getElementById('exec'));
+  // map
+  sizeMap(); buildDots(); drawMap();
+  addEventListener('resize',()=>{sizeMap();buildDots();});
+  for(let i=0;i<6;i++)setTimeout(spawnArc,i*300);
+  setInterval(spawnArc,650);
+  setInterval(()=>{mAttacks.textContent=attacksMin;mBlocked.textContent=blockedTot;mCountries.textContent=Object.keys(attackerCount).length;attacksMin=Math.max(0,attacksMin-ri(2,5));},2000);
+  setInterval(renderAttackers,1500);
+  // feed
+  feedItem();feedItem();feedItem();
+  setInterval(()=>{if(Math.random()<.8)feedItem();},1400);
+  initLive();
+  // rotation
+  requestAnimationFrame(rotLoop);
+}
+boot();
+</script>
+</body>
+</html>

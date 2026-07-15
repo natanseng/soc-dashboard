@@ -1,0 +1,36 @@
+# ===== Segredos / variaveis de ambiente =====
+# Ignora .env reais em qualquer nivel; preserva os .env.example (templates)
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# ===== Ambientes virtuais Python (qualquer nivel) =====
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# ===== Caches e bytecode Python =====
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Bases GeoIP (grandes, licenciadas MaxMind) =====
+*.mmdb
+
+# ===== Logs =====
+*.log
+
+# ===== Dependencias / builds de frontend =====
+node_modules/
+dist/
+
+# Observacao: backend/static/echarts.min.js E versionado propositalmente
+# (biblioteca local necessaria para o frontend operar offline).
