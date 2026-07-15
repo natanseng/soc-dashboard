@@ -14,12 +14,13 @@ class VisionOneClient:
         }
         self._client = httpx.AsyncClient(base_url=self._base, headers=self._headers, timeout=60)
 
-    async def get_json(self, path: str, params=None, extra_headers=None, max_retries: int = 5):
+    async def get_json(self, path: str, params=None, extra_headers=None, max_retries: int = 5, timeout=None):
         """GET com tratamento de rate limit (429) e backoff exponencial."""
         headers = dict(extra_headers or {})
         attempt = 0
         while True:
-            r = await self._client.get(path, params=params, headers=headers)
+            _kw = {} if timeout is None else {"timeout": timeout}
+            r = await self._client.get(path, params=params, headers=headers, **_kw)
             if r.status_code == 429:
                 attempt += 1
                 if attempt > max_retries:
@@ -30,11 +31,11 @@ class VisionOneClient:
             r.raise_for_status()
             return r.json()
 
-    async def get_paginated(self, path: str, params=None, extra_headers=None, limit: int = 10_000):
+    async def get_paginated(self, path: str, params=None, extra_headers=None, limit: int = 10_000, timeout=None):
         """Segue nextLink até esgotar ou atingir 'limit' itens."""
         items, url, p = [], path, params
         while url and len(items) < limit:
-            data = await self.get_json(url, params=p, extra_headers=extra_headers)
+            data = await self.get_json(url, params=p, extra_headers=extra_headers, timeout=timeout)
             items.extend(data.get("items", []))
             url = data.get("nextLink")  # URL absoluta -> não reenviar params
             p = None

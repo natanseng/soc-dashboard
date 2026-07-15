@@ -190,6 +190,21 @@ async def tick_t3(v1: VisionOneClient):
         log.warning("T3 endpoint falhou: %s", _diag(exc))
 
 
+async def tick_t4(v1: VisionOneClient):
+    """3600s: rankings de vulnerabilidade (tela Vulnerabilidades). Coleta pesada/lenta."""
+    try:
+        vr = await tiers.vuln_rankings(v1)
+        vr = await _merge_keep(f"v1:{TENANT}:vulnerabilities", vr)  # keep-last-good por ranking (None conserva)
+        await r.set(f"v1:{TENANT}:vulnerabilities", json.dumps(vr), ex=7200)
+        await r.publish(f"ws:{TENANT}", json.dumps({"type": "vulnerabilities", "data": vr}))
+        st = (vr.get("metadata") or {}).get("status", {})
+        log.info("T4 vulnerabilities OK: cves=%s servers=%s endpoints=%s apps=%s partial=%s",
+                 st.get("topCves"), st.get("topServers"), st.get("topEndpoints"),
+                 st.get("topApplications"), (vr.get("metadata") or {}).get("partial"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("T4 vulnerabilities falhou: %s", _diag(exc))
+
+
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not settings.v1_api_token or settings.v1_api_token.startswith("__"):
@@ -204,7 +219,9 @@ async def main():
     sched.add_job(tick_t2, "interval", seconds=settings.tier2_interval,
                   args=[v1], next_run_time=now + timedelta(seconds=8))
     sched.add_job(tick_t3, "interval", seconds=settings.tier3_interval,
-                  args=[v1], next_run_time=now + timedelta(seconds=16))
+                                    args=[v1], next_run_time=now + timedelta(seconds=16))
+    sched.add_job(tick_t4, "interval", seconds=settings.tier4_interval,
+                  args=[v1], next_run_time=now + timedelta(seconds=24))
     sched.start()
     log.info("Coletor iniciado | tenant=%s | T1=%ss T2=%ss T3=%ss",
              TENANT, settings.tier1_interval, settings.tier2_interval, settings.tier3_interval)

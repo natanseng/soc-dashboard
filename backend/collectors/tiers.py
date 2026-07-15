@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 
 from app import geo
@@ -650,3 +651,167 @@ async def endpoint_inventory(v1: VisionOneClient) -> list:
     """Conectividade/saúde dos agentes -> painel de endpoints (SOC)."""
     return await v1.get_paginated(
         "/v3.0/endpointSecurity/endpoints", params={"top": 100})
+
+
+# ===========================================================================
+# Tela VULNERABILIDADES — rankings (amostra por RISCO, do maior para o menor)
+# ===========================================================================
+# Os endpoints ASRM sao lentos (29-36s/pagina) e so ordenam por risco
+# (cveRiskLevel / latestRiskScore), nao pela metrica pedida. Por isso amostramos
+# os itens de MAIOR RISCO e re-ranqueamos pela metrica no backend (best-effort;
+# marca metadata.partial e limitations). Nunca fabrica dado; ranking ausente/erro
+# vira None (nao [] nem 0), para o frontend distinguir vazio x indisponivel.
+_APP_STRIP = re.compile(
+    r"\b(update|updater|helper|service|background|x64|x86|amd64|arm64|64-bit|32-bit|"
+    r"\(x64\)|\(x86\)|el\d+|build)\b", re.I)
+
+def _vuln_status(exc) -> str:
+    resp = getattr(exc, "response", None)
+    if resp is not None and resp.status_code in (401, 403):
+        return "forbidden"
+    return "unavailable"
+
+def _norm_app(vendor, name) -> str:
+    """Chave de agrupamento normalizada de aplicacao (fornecedor|produto)."""
+    n = (name or "").lower()
+    n = re.sub(r"\d+([._-]\d+)+", " ", n)         # remove versoes (1.2.3, 0:2.46.6-1)
+    n = _APP_STRIP.sub(" ", n)
+    n = re.sub(r"[^a-z0-9]+", " ", n).strip()
+    v = re.sub(r"[^a-z0-9]+", " ", (vendor or "").lower()).strip()
+    return f"{v}|{n}" if n else (v or "?")
+
+
+async def _device_type_map(v1: VisionOneClient, inv_cap: int = 30000) -> dict:
+    """Mapa deviceName(lower) -> {type, os} via inventario endpointSecurity (top=1000, rapido).
+    Usado para classificar servidor x endpoint (NAO por texto do hostname)."""
+    m = {}
+    items = await asyncio.wait_for(
+        v1.get_paginated("/v3.0/endpointSecurity/endpoints", params={"top": 1000}, limit=inv_cap),
+        timeout=300)
+    for e in items:
+        nm = (e.get("endpointName") or "").strip().lower()
+        if nm:
+            m[nm] = {"type": e.get("type"), "os": e.get("osName")}
+    return m
+
+
+async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
+                        app_n: int = 500, inv_cap: int = 30000, budget: int = 360) -> dict:
+    """4 rankings da tela Vulnerabilidades. Amostra por risco (maior->menor)."""
+    md = {"source": [], "partial": False, "limitations": [],
+          "status": {"topCves": "unavailable", "topServers": "unavailable",
+                     "topEndpoints": "unavailable", "topApplications": "unavailable"},
+          "sampled": {}}
+    out = {"topCves": None, "topServers": None, "topEndpoints": None,
+           "topApplications": None, "metadata": md}
+
+    # 1) Top CVEs — internalAssetVulnerabilities (orderBy cveRiskLevel desc) -> re-rank por affectedAssetCount
+    try:
+        items = await asyncio.wait_for(
+            v1.get_paginated("/v3.0/asrm/internalAssetVulnerabilities",
+                             params={"top": 50, "orderBy": "cveRiskLevel desc"}, limit=cve_n),
+            timeout=budget)
+        rows = []
+        for it in items:
+            sw = it.get("affectedSoftwares") or []
+            rows.append({
+                "cve": it.get("cveId"),
+                "affectedAssets": it.get("affectedAssetCount") or 0,
+                "cvss": it.get("cvssScore"),
+                "level": str(it.get("cveRiskLevel") or "").lower(),
+                "exploit": it.get("globalExploitActivityLevel"),
+                "product": (sw[0].get("name") if sw and isinstance(sw[0], dict) else None),
+            })
+        rows.sort(key=lambda x: (x["affectedAssets"] or 0), reverse=True)
+        out["topCves"] = rows[:10]
+        md["status"]["topCves"] = "ok" if rows else "empty"
+        md["sampled"]["cves"] = len(items)
+        md["source"].append("asrm/internalAssetVulnerabilities")
+        if len(items) >= cve_n:
+            md["partial"] = True
+            md["limitations"].append(
+                f"Top CVEs: ranqueado entre os {len(items)} CVEs de MAIOR RISCO (amostra); "
+                "a API nao ordena por ativos afetados, entao um CVE de baixo risco com muitos ativos pode ficar fora.")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vuln.cves indisponivel: %s", diag(exc))
+        md["status"]["topCves"] = _vuln_status(exc)
+
+    # 2/3) Top servidores/endpoints — vulnerableDevices + classificacao via inventario
+    try:
+        tmap = await _device_type_map(v1, inv_cap=inv_cap)
+        devs = await asyncio.wait_for(
+            v1.get_paginated("/v3.0/asrm/vulnerableDevices", params={"top": 50}, limit=dev_n),
+            timeout=budget)
+        servers, endpoints, unclassified = [], [], 0
+        for d in devs:
+            recs = d.get("cveRecords") or []
+            distinct = len({c.get("id") for c in recs if c.get("id")})
+            crit = sum(1 for c in recs if str(c.get("eventRiskLevel") or "").lower() == "critical")
+            high = sum(1 for c in recs if str(c.get("eventRiskLevel") or "").lower() == "high")
+            nm = (d.get("deviceName") or "").strip()
+            info = tmap.get(nm.lower()) or {}
+            row = {"asset": nm or "—", "distinctCves": distinct, "crit": crit, "high": high,
+                   "os": info.get("os"), "criticality": d.get("criticality"),
+                   "lastScanned": d.get("lastScannedDateTime")}
+            if info.get("type") == "server":
+                servers.append(row)
+            elif info.get("type") == "desktop":
+                endpoints.append(row)
+            else:
+                unclassified += 1
+        servers.sort(key=lambda x: x["distinctCves"], reverse=True)
+        endpoints.sort(key=lambda x: x["distinctCves"], reverse=True)
+        out["topServers"] = servers[:10]
+        out["topEndpoints"] = endpoints[:10]
+        md["status"]["topServers"] = "ok" if servers else "empty"
+        md["status"]["topEndpoints"] = "ok" if endpoints else "empty"
+        md["sampled"]["devices"] = len(devs)
+        md["sampled"]["unclassified"] = unclassified
+        md["source"].append("asrm/vulnerableDevices + endpointSecurity/endpoints")
+        if unclassified:
+            md["limitations"].append(
+                f"Classificacao servidor/endpoint via inventario endpointSecurity; {unclassified} device(s) "
+                "da amostra sem correspondencia (nao classificados, fora dos rankings).")
+        if len(devs) >= dev_n:
+            md["partial"] = True
+            md["limitations"].append(f"Top servidores/endpoints: amostra dos {len(devs)} devices vulneraveis.")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vuln.devices indisponivel: %s", diag(exc))
+        st = _vuln_status(exc)
+        md["status"]["topServers"] = st
+        md["status"]["topEndpoints"] = st
+
+    # 4) Top aplicacoes — attackSurfaceLocalApps (orderBy latestRiskScore desc) -> agrupa por fornecedor+nome
+    try:
+        apps = await asyncio.wait_for(
+            v1.get_paginated("/v3.0/asrm/attackSurfaceLocalApps",
+                             params={"top": 50, "orderBy": "latestRiskScore desc"}, limit=app_n),
+            timeout=budget)
+        groups = {}
+        for a in apps:
+            key = _norm_app(a.get("vendor"), a.get("name"))
+            g = groups.setdefault(key, {"application": a.get("name") or "—", "vendor": a.get("vendor"),
+                                        "cveIndicators": 0, "affectedAssets": 0, "risk": 0, "versions": set()})
+            g["cveIndicators"] += (a.get("riskIndicatorEventCount") or 0)
+            g["affectedAssets"] += (a.get("deviceCount") or 0)
+            g["risk"] = max(g["risk"], a.get("latestRiskScore") or 0)
+            if a.get("version"):
+                g["versions"].add(a.get("version"))
+        rows = [{"application": g["application"], "vendor": g["vendor"],
+                 "cveIndicators": g["cveIndicators"], "affectedAssets": g["affectedAssets"],
+                 "risk": g["risk"], "versions": len(g["versions"])} for g in groups.values()]
+        rows.sort(key=lambda x: (x["cveIndicators"] or 0, x["affectedAssets"] or 0), reverse=True)
+        out["topApplications"] = rows[:10]
+        md["status"]["topApplications"] = "ok" if rows else "empty"
+        md["sampled"]["apps"] = len(apps)
+        md["source"].append("asrm/attackSurfaceLocalApps")
+        md["limitations"].append(
+            "Top aplicacoes: 'cveIndicators' = riskIndicatorEventCount (indicadores de risco ~ CVEs, "
+            "nao CVEs distintos exatos); agrupado por fornecedor+nome normalizado.")
+        if len(apps) >= app_n:
+            md["partial"] = True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vuln.apps indisponivel: %s", diag(exc))
+        md["status"]["topApplications"] = _vuln_status(exc)
+
+    return out
