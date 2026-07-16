@@ -1275,7 +1275,14 @@ function renderTenantColumn(t, d){
   }
   const riCls=hasRi?_riCls(ri):'med';
   const lvl=(x)=>{ const m=_LVL[String(x||'').toLowerCase()]; return m?`<b class="${m.c}">${m.t}</b>`:'<b>—</b>'; };
+  const hasWb=!!(wb && (wb.critical!=null||wb.high!=null||wb.medium!=null||wb.low!=null));
   const crit=+wb.critical||0,high=+wb.high||0,med=+wb.medium||0,low=+wb.low||0, totA=crit+high+med+low;
+  const alertsBody = hasWb
+    ? `<div class="tsev">${_mtSevRows(wb)}</div>`+
+      `<div class="tstat"><div><b>${_sv(wb.open)}</b><span>Abertos</span></div>`+
+        `<div><b class="c-high">${_sv(wb.in_progress)}</b><span>Investig.</span></div>`+
+        `<div><b class="c-ok">${_sv(wb.closed)}</b><span>Fechados</span></div></div>`
+    : `<div style="color:var(--dim);font-size:11px;padding:6px 0">Dados indisponíveis</div>`;
   const s=p.surface||{};
   col.innerHTML=
     `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive">● AO VIVO</div></div>`+
@@ -1287,11 +1294,7 @@ function renderTenantColumn(t, d){
         `<div class="tlvl"><span>Exposição</span>${lvl(p.exposure)}</div>`+
         `<div class="tlvl"><span>Ataque</span>${lvl(p.attack)}</div>`+
         `<div class="tlvl"><span>Config.</span>${lvl(p.config)}</div></div></div>`+
-    `<div class="tsec"><div class="tsec-h">Alertas <span>por criticidade</span><b class="c-crit">${_nfp(totA)}</b></div>`+
-      `<div class="tsev">${_mtSevRows(wb)}</div>`+
-      `<div class="tstat"><div><b>${_sv(wb.open)}</b><span>Abertos</span></div>`+
-        `<div><b class="c-high">${_sv(wb.in_progress)}</b><span>Investig.</span></div>`+
-        `<div><b class="c-ok">${_sv(wb.closed)}</b><span>Fechados</span></div></div></div>`+
+    `<div class="tsec"><div class="tsec-h">Alertas <span>por criticidade</span><b class="c-crit">${hasWb?_nfp(totA):'—'}</b></div>${alertsBody}</div>`+
     `<div class="tsec"><div class="tsec-h">Eventos <span>detecções</span></div>`+
       `<div class="tkpis"><div><b>${_evf(ev.e24h)}</b><span>24h</span></div>`+
         `<div><b>${_evf(ev.e7d)}</b><span>7 dias</span></div>`+
