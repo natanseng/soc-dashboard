@@ -194,8 +194,22 @@ async def tick_t4(v1: VisionOneClient):
     """3600s: rankings de vulnerabilidade (tela Vulnerabilidades). Coleta pesada/lenta."""
     try:
         vr = await tiers.vuln_rankings(v1)
-        vr = await _merge_keep(f"v1:{TENANT}:vulnerabilities", vr)  # keep-last-good por ranking (None conserva)
-        await r.set(f"v1:{TENANT}:vulnerabilities", json.dumps(vr), ex=7200)
+        key = f"v1:{TENANT}:vulnerabilities"
+        try:
+            prev_raw = await r.get(key)
+            prev = json.loads(prev_raw) if prev_raw else {}
+        except Exception:  # noqa: BLE001
+            prev = {}
+        # keep-last-good por ranking de topo (None conserva o anterior bom)
+        vr = {k: (v if v is not None else prev.get(k)) for k, v in vr.items()}
+        # keep-last-good ANINHADO do exploitSummary: total/nivel None conserva o anterior
+        # (evita que uma contagem transitoriamente indisponivel vire 0 fabricado na TV)
+        es, esp = vr.get("exploitSummary"), (prev or {}).get("exploitSummary")
+        if isinstance(es, dict) and isinstance(esp, dict):
+            for _k in ("total", "high", "medium", "low"):
+                if es.get(_k) is None and esp.get(_k) is not None:
+                    es[_k] = esp[_k]
+        await r.set(key, json.dumps(vr), ex=7200)
         await r.publish(f"ws:{TENANT}", json.dumps({"type": "vulnerabilities", "data": vr}))
         st = (vr.get("metadata") or {}).get("status", {})
         log.info("T4 vulnerabilities OK: cves=%s servers=%s endpoints=%s apps=%s partial=%s",

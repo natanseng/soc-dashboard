@@ -696,8 +696,8 @@ def _classify_device(name, os_name, os_platform, tmap: dict):
     """servidor x endpoint: 1) tipo AUTORITATIVO do inventario endpointSecurity (por nome);
     2) fallback pelo sistema operacional (Server -> servidor; Windows client/mac -> endpoint).
     Devolve 'server' | 'desktop' | None (nao classificado). Nunca infere pelo texto do hostname."""
-    key = (name or "").split(".")[0].strip().lower()
-    info = tmap.get(key)
+    n = (name or "").strip().lower()
+    info = tmap.get(n) or tmap.get(n.split(".")[0])   # casa nome completo (FQDN) e token curto
     if info and info.get("type") in ("server", "desktop"):
         return info["type"]
     osn = str(os_name or "").lower()
@@ -711,23 +711,41 @@ def _classify_device(name, os_name, os_platform, tmap: dict):
 
 
 async def _device_type_map(v1: VisionOneClient, inv_cap: int = 30000) -> dict:
-    """Mapa deviceName(lower) -> {type, os} via inventario endpointSecurity (top=1000, ~3s/pagina).
-    Cache em processo por _DEVTYPE_TTL. Tipo autoritativo p/ classificar servidor x endpoint."""
+    """Mapa nome(lower) -> {type, os} via inventario endpointSecurity (top=1000, ~3s/pagina).
+    Indexa o nome COMPLETO e o token curto (antes do 1o '.') p/ casar FQDN e nome curto.
+    Cache em processo por _DEVTYPE_TTL: so cacheia mapa NAO-VAZIO e reusa o ultimo bom se a
+    reconstrucao falhar (nunca serve/poluir com mapa vazio -> classificacao nao degrada em silencio)."""
     now = asyncio.get_event_loop().time()
     cached = _DEVTYPE_CACHE.get("map")
-    if cached is not None and (now - _DEVTYPE_CACHE["ts"]) < _DEVTYPE_TTL:
+    if cached and (now - _DEVTYPE_CACHE["ts"]) < _DEVTYPE_TTL:   # 'cached' truthy = nao-vazio
         return cached
+    try:
+        items = await asyncio.wait_for(
+            v1.get_paginated("/v3.0/endpointSecurity/endpoints", params={"top": 1000}, limit=inv_cap),
+            timeout=300)
+    except Exception:  # noqa: BLE001
+        if cached:                      # reconstrucao falhou -> reusa mapa velho (stale) se houver
+            return cached
+        raise
     m = {}
-    items = await asyncio.wait_for(
-        v1.get_paginated("/v3.0/endpointSecurity/endpoints", params={"top": 1000}, limit=inv_cap),
-        timeout=300)
     for e in items:
         nm = (e.get("endpointName") or "").strip().lower()
-        if nm:
-            m[nm] = {"type": e.get("type"), "os": e.get("osName")}
-    _DEVTYPE_CACHE["map"] = m
-    _DEVTYPE_CACHE["ts"] = now
-    return m
+        if not nm:
+            continue
+        info = {"type": e.get("type"), "os": e.get("osName")}
+        m[nm] = info                                    # nome completo (ex.: host.dominio.local)
+        short = nm.split(".")[0]
+        if short and short != nm:                       # token curto (ex.: host)
+            ex = m.get(short)
+            if ex is not None and ex.get("type") != info.get("type"):
+                m[short] = {"type": None, "os": info.get("os")}   # colisao ambigua -> nao classifica
+            elif short not in m:
+                m[short] = info
+    if m:                               # 200 vazio (transitorio) nao substitui um bom anterior
+        _DEVTYPE_CACHE["map"] = m
+        _DEVTYPE_CACHE["ts"] = now
+        return m
+    return cached or {}
 
 
 async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
@@ -781,7 +799,12 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
         try:
             tmap = await _device_type_map(v1, inv_cap=inv_cap)   # cache em processo; best-effort
         except Exception as exc:  # noqa: BLE001
-            log.warning("vuln.devtypemap indisponivel (classifica so por SO): %s", diag(exc))
+            log.warning("vuln.devtypemap indisponivel: %s", diag(exc))
+        if not tmap:
+            # sem o inventario autoritativo a classificacao servidor/endpoint fica incompleta
+            # (perderia servidores Linux) -> NAO emite ranking degradado; deixa None p/
+            # keep-last-good conservar o ultimo bom (ou mostrar indisponivel).
+            raise RuntimeError("mapa de tipos (endpointSecurity) indisponivel")
         devs = await asyncio.wait_for(
             v1.get_paginated("/v3.0/asrm/attackSurfaceDevices",
                              params={"top": 50, "orderBy": "latestRiskScore desc"}, limit=dev_n),
@@ -875,9 +898,10 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
     _lv = [exp[k] for k in ("high", "medium", "low")]
     if exp["total"] is None and all(v is not None for v in _lv):
         exp["total"] = sum(_lv)
+    _complete = exp["total"] is not None and all(v is not None for v in _lv)
     if exp["total"] is not None or any(v is not None for v in _lv):
         out["exploitSummary"] = exp
-        md["status"]["exploitSummary"] = "ok"
+        md["status"]["exploitSummary"] = "ok" if _complete else "partial"
         md["source"].append("asrm/internalAssetVulnerabilities (globalExploitActivityLevel)")
 
     return out

@@ -278,6 +278,8 @@ body{
 .vsum-legend .lg small{font-size:10px;color:var(--dim)}
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
+#vuln .rlist{overflow-y:auto}                 /* telas de baixa altura: rola em vez de sobrepor */
+#vuln .rlist .rfrow{min-height:15px}          /* nao encolhe abaixo do conteudo (evita overlap) */
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
 .rlist .rnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
@@ -472,7 +474,7 @@ body{
       <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
     </div>
     <div class="panel p-vcves">
-      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
       <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
     </div>
     <div class="panel p-vservers">
@@ -1195,27 +1197,32 @@ function renderRankBars(id, rows, opt){
 function _vLive(id,on){ const t=document.getElementById(id); if(t) t.style.display=on?'':'none'; }
 function renderExploitSummary(sum, status){
   const el=document.getElementById('vSummary'); if(!el) return;
-  const lvVals = sum ? ['high','medium','low'].map(k=>sum[k]) : [];
-  const haveLv = lvVals.some(x=>x!=null);
-  // total direto; se ausente, deriva da soma dos niveis (que particionam o dataset)
+  const keys=['high','medium','low'];
+  const allKnown = !!sum && keys.every(k=>sum[k]!=null);
+  const anyKnown = !!sum && keys.some(k=>sum[k]!=null);
+  // total: direto; senao SOMA dos niveis apenas se TODOS conhecidos (nunca fabrica/subestima)
   let total = (sum && sum.total!=null) ? Number(sum.total)
-            : (haveLv ? lvVals.reduce((a,x)=>a+(Number(x)||0),0) : null);
-  if(!sum || (total==null && !haveLv)){
+            : (allKnown ? keys.reduce((a,k)=>a+Number(sum[k]),0) : null);
+  if(!sum || (total==null && !anyKnown)){
     const forb=(status==='forbidden');
     el.innerHTML=`<div class="rmsg c-high">${forb?'Permissão insuficiente':'Dados indisponíveis'}</div>`;
     _vLive('vSummaryLive',false); return;
   }
-  total = Number(total)||0;
   const cls={high:'high',medium:'med',low:'low'}, label={high:'Alto',medium:'Médio',low:'Baixo'};
-  const lv=['high','medium','low'].map(k=>[k,Number(sum[k])||0]);
   const nf=(n)=>Number(n).toLocaleString('pt-BR');
-  const p=(n)=> total? n/total*100 : 0;
+  const denom=(total&&total>0)?total:0;
+  const pctOf=(n)=> denom? n/denom*100 : 0;
   const fmtP=(x)=> (x>0&&x<10? x.toFixed(1).replace('.',',') : Math.round(x))+'%';
-  const bar=lv.map(([k,n])=>`<div class="seg bg-${cls[k]}" style="width:${p(n).toFixed(2)}%" title="${k}: ${nf(n)}"></div>`).join('');
-  const leg=lv.map(([k,n])=>`<span class="lg"><i style="background:var(--${cls[k]})"></i>${label[k]} <b class="c-${cls[k]}">${nf(n)}</b> <small>${fmtP(p(n))}</small></span>`).join('');
-  el.innerHTML=`<div class="vsum-total"><b>${nf(total)}</b><span>CVEs distintos</span></div>`+
+  // barra: um segmento por nivel CONHECIDO (null nao entra, nunca vira 0)
+  const bar=keys.map(k=>{ const v=sum[k]; if(v==null) return '';
+      return `<div class="seg bg-${cls[k]}" style="width:${pctOf(Number(v)).toFixed(2)}%" title="${k}: ${nf(v)}"></div>`; }).join('');
+  const leg=keys.map(k=>{ const v=sum[k];
+      const inner=(v==null)?'<b>—</b>'
+        :`<b class="c-${cls[k]}">${nf(v)}</b>`+(denom?` <small>${fmtP(pctOf(Number(v)))}</small>`:'');
+      return `<span class="lg"><i style="background:var(--${cls[k]})"></i>${label[k]} ${inner}</span>`; }).join('');
+  el.innerHTML=`<div class="vsum-total"><b>${total!=null?nf(total):'—'}</b><span>CVEs distintos</span></div>`+
     `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
-  _vLive('vSummaryLive',true);
+  _vLive('vSummaryLive', total!=null);
 }
 function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
