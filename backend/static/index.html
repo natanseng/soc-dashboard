@@ -278,8 +278,9 @@ body{
 .vsum-legend .lg small{font-size:10px;color:var(--dim)}
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
-#vuln .rlist{overflow-y:auto}                 /* telas de baixa altura: rola em vez de sobrepor */
-#vuln .rlist .rfrow{min-height:15px}          /* nao encolhe abaixo do conteudo (evita overlap) */
+/* Tela Vulnerabilidades: valor + unidade (ex.: "875 MÁQUINAS") em UMA linha */
+#vuln .rf-val{width:150px;white-space:nowrap}
+#vuln .rf-val small{display:inline;margin-top:0;margin-left:5px;font-size:9.5px}
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
 .rlist .rnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
