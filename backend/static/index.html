@@ -262,18 +262,19 @@ body{
 #vuln .p-vendpoints{grid-column:1;grid-row:3}
 #vuln .p-vapps{grid-column:2;grid-row:3}
 /* Faixa-resumo: total de CVEs + distribuicao por Global exploit potential */
-#vuln .p-vsummary .phead{margin-bottom:9px}
-.vsum{display:flex;align-items:center;gap:26px;flex:1;min-height:0}
+#vuln .p-vsummary{padding:11px 15px}
+#vuln .p-vsummary .phead{margin-bottom:7px}
+.vsum{display:flex;align-items:center;gap:24px;flex:1;min-height:0}
 .vsum-total{display:flex;flex-direction:column;line-height:1;flex-shrink:0}
-.vsum-total b{font-family:var(--display);font-weight:800;font-size:34px;color:var(--txt)}
-.vsum-total span{font-size:10px;color:var(--dim);letter-spacing:.6px;margin-top:5px;text-transform:uppercase}
-.vsum-main{display:flex;flex-direction:column;gap:9px;flex:1;min-width:0}
-.vsum-bar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.05)}
+.vsum-total b{font-family:var(--display);font-weight:800;font-size:27px;color:var(--txt)}
+.vsum-total span{font-size:9px;color:var(--dim);letter-spacing:.6px;margin-top:3px;text-transform:uppercase}
+.vsum-main{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.vsum-bar{display:flex;height:12px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.05)}
 .vsum-bar .seg{height:100%;transition:width 1.1s cubic-bezier(.2,.8,.2,1)}
 .vsum-legend{display:flex;gap:22px;flex-wrap:wrap}
 .vsum-legend .lg{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);letter-spacing:.3px}
 .vsum-legend .lg i{width:9px;height:9px;border-radius:2px;flex-shrink:0}
-.vsum-legend .lg b{font-family:var(--display);font-weight:800;font-size:15px}
+.vsum-legend .lg b{font-family:var(--display);font-weight:800;font-size:14px}
 .vsum-legend .lg small{font-size:10px;color:var(--dim)}
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
@@ -1194,13 +1195,18 @@ function renderRankBars(id, rows, opt){
 function _vLive(id,on){ const t=document.getElementById(id); if(t) t.style.display=on?'':'none'; }
 function renderExploitSummary(sum, status){
   const el=document.getElementById('vSummary'); if(!el) return;
-  if(!sum || sum.total==null){
+  const lvVals = sum ? ['high','medium','low'].map(k=>sum[k]) : [];
+  const haveLv = lvVals.some(x=>x!=null);
+  // total direto; se ausente, deriva da soma dos niveis (que particionam o dataset)
+  let total = (sum && sum.total!=null) ? Number(sum.total)
+            : (haveLv ? lvVals.reduce((a,x)=>a+(Number(x)||0),0) : null);
+  if(!sum || (total==null && !haveLv)){
     const forb=(status==='forbidden');
     el.innerHTML=`<div class="rmsg c-high">${forb?'Permissão insuficiente':'Dados indisponíveis'}</div>`;
     _vLive('vSummaryLive',false); return;
   }
+  total = Number(total)||0;
   const cls={high:'high',medium:'med',low:'low'}, label={high:'Alto',medium:'Médio',low:'Baixo'};
-  const total=Number(sum.total)||0;
   const lv=['high','medium','low'].map(k=>[k,Number(sum[k])||0]);
   const nf=(n)=>Number(n).toLocaleString('pt-BR');
   const p=(n)=> total? n/total*100 : 0;

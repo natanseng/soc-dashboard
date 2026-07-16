@@ -861,17 +861,21 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
     vpath = "/v3.0/asrm/internalAssetVulnerabilities"
     exp = {"total": None, "high": None, "medium": None, "low": None}
     try:
-        exp["total"] = await asyncio.wait_for(_count(v1, vpath, top=50), timeout=30)
+        exp["total"] = await asyncio.wait_for(_count(v1, vpath, top=50), timeout=60)
     except Exception as exc:  # noqa: BLE001
         log.warning("vuln.exploit.total indisponivel: %s", diag(exc))
     for lvl in ("high", "medium", "low"):
         try:
             exp[lvl] = await asyncio.wait_for(
                 _count(v1, vpath, extra_headers={"TMV1-Filter": f"globalExploitActivityLevel eq '{lvl}'"}, top=50),
-                timeout=30)
+                timeout=60)
         except Exception as exc:  # noqa: BLE001
             log.warning("vuln.exploit.%s indisponivel: %s", lvl, diag(exc))
-    if exp["total"] is not None or any(exp[k] is not None for k in ("high", "medium", "low")):
+    # os 3 niveis particionam o dataset -> se o total direto falhar, deriva da soma
+    _lv = [exp[k] for k in ("high", "medium", "low")]
+    if exp["total"] is None and all(v is not None for v in _lv):
+        exp["total"] = sum(_lv)
+    if exp["total"] is not None or any(v is not None for v in _lv):
         out["exploitSummary"] = exp
         md["status"]["exploitSummary"] = "ok"
         md["source"].append("asrm/internalAssetVulnerabilities (globalExploitActivityLevel)")
