@@ -255,11 +255,26 @@ body{
 #soc .p-trend{grid-column:3;grid-row:1/4}
 #soc .p-ep{grid-column:2;grid-row:3}
 
-#vuln{grid-template-columns:repeat(2,1fr);grid-template-rows:1fr 1fr}
-#vuln .p-vcves{grid-column:1;grid-row:1}
-#vuln .p-vservers{grid-column:2;grid-row:1}
-#vuln .p-vendpoints{grid-column:1;grid-row:2}
-#vuln .p-vapps{grid-column:2;grid-row:2}
+#vuln{grid-template-columns:repeat(2,1fr);grid-template-rows:auto 1fr 1fr}
+#vuln .p-vsummary{grid-column:1/3;grid-row:1}
+#vuln .p-vcves{grid-column:1;grid-row:2}
+#vuln .p-vservers{grid-column:2;grid-row:2}
+#vuln .p-vendpoints{grid-column:1;grid-row:3}
+#vuln .p-vapps{grid-column:2;grid-row:3}
+/* Faixa-resumo: total de CVEs + distribuicao por Global exploit potential */
+#vuln .p-vsummary .phead{margin-bottom:9px}
+.vsum{display:flex;align-items:center;gap:26px;flex:1;min-height:0}
+.vsum-total{display:flex;flex-direction:column;line-height:1;flex-shrink:0}
+.vsum-total b{font-family:var(--display);font-weight:800;font-size:34px;color:var(--txt)}
+.vsum-total span{font-size:10px;color:var(--dim);letter-spacing:.6px;margin-top:5px;text-transform:uppercase}
+.vsum-main{display:flex;flex-direction:column;gap:9px;flex:1;min-width:0}
+.vsum-bar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.05)}
+.vsum-bar .seg{height:100%;transition:width 1.1s cubic-bezier(.2,.8,.2,1)}
+.vsum-legend{display:flex;gap:22px;flex-wrap:wrap}
+.vsum-legend .lg{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);letter-spacing:.3px}
+.vsum-legend .lg i{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.vsum-legend .lg b{font-family:var(--display);font-weight:800;font-size:15px}
+.vsum-legend .lg small{font-size:10px;color:var(--dim)}
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
@@ -274,7 +289,8 @@ body{
 
 @media (max-width:1100px){
   #exec,#soc{grid-template-columns:1fr 1fr}
-  #vuln{grid-template-columns:1fr;grid-template-rows:repeat(4,1fr)}
+  #vuln{grid-template-columns:1fr;grid-template-rows:auto repeat(4,1fr)}
+  #vuln .p-vsummary{grid-column:1}
   #map.screen{grid-template-columns:1fr}
 }
 </style>
@@ -450,8 +466,12 @@ body{
 
   <!-- ===================== VULNERABILIDADES ===================== -->
   <section class="screen" id="vuln">
+    <div class="panel p-vsummary">
+      <div class="phead"><span class="ico"></span><h3>CVEs no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
+      <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
+    </div>
     <div class="panel p-vcves">
-      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por ativos afetados</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
       <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
     </div>
     <div class="panel p-vservers">
@@ -1172,13 +1192,32 @@ function renderRankBars(id, rows, opt){
   });
 }
 function _vLive(id,on){ const t=document.getElementById(id); if(t) t.style.display=on?'':'none'; }
+function renderExploitSummary(sum, status){
+  const el=document.getElementById('vSummary'); if(!el) return;
+  if(!sum || sum.total==null){
+    const forb=(status==='forbidden');
+    el.innerHTML=`<div class="rmsg c-high">${forb?'Permissão insuficiente':'Dados indisponíveis'}</div>`;
+    _vLive('vSummaryLive',false); return;
+  }
+  const cls={high:'high',medium:'med',low:'low'}, label={high:'Alto',medium:'Médio',low:'Baixo'};
+  const total=Number(sum.total)||0;
+  const lv=['high','medium','low'].map(k=>[k,Number(sum[k])||0]);
+  const nf=(n)=>Number(n).toLocaleString('pt-BR');
+  const p=(n)=> total? n/total*100 : 0;
+  const fmtP=(x)=> (x>0&&x<10? x.toFixed(1).replace('.',',') : Math.round(x))+'%';
+  const bar=lv.map(([k,n])=>`<div class="seg bg-${cls[k]}" style="width:${p(n).toFixed(2)}%" title="${k}: ${nf(n)}"></div>`).join('');
+  const leg=lv.map(([k,n])=>`<span class="lg"><i style="background:var(--${cls[k]})"></i>${label[k]} <b class="c-${cls[k]}">${nf(n)}</b> <small>${fmtP(p(n))}</small></span>`).join('');
+  el.innerHTML=`<div class="vsum-total"><b>${nf(total)}</b><span>CVEs distintos</span></div>`+
+    `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
+  _vLive('vSummaryLive',true);
+}
 function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
   const P=[
     ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;return n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'';}}],
-    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
-    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'distinctCves',levelKey:'criticality',valueLabel:'CVEs'}],
+    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
+    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
   ];
   P.forEach(([key,cid,live,opt])=>{
@@ -1189,6 +1228,7 @@ function applyVulnScreen(v){
     else if(s==='ok'){ setPanelState(cid,'empty'); _vLive(live,false); }
     else { setPanelState(cid,'unavailable'); _vLive(live,false); }
   });
+  renderExploitSummary(v.exploitSummary, (st.exploitSummary));
 }
 
 function applyLive(d){

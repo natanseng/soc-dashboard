@@ -681,9 +681,42 @@ def _norm_app(vendor, name) -> str:
     return f"{v}|{n}" if n else (v or "?")
 
 
+# cache em processo do mapa de tipos: o inventario tem ~27k devices (rebuild ~180s).
+# O coletor e um processo longo -> o mapa e reusado entre ticks T4 (hourly) por ate _DEVTYPE_TTL.
+_DEVTYPE_CACHE = {"ts": -1e9, "map": None}
+_DEVTYPE_TTL = 21600  # 6h
+
+# Sistemas operacionais "cliente" (endpoint/desktop) — usados so no fallback quando o
+# device nao esta no inventario autoritativo. NAO e adivinhacao por hostname.
+_CLIENT_OS = ("windows 11", "windows 10", "windows 8", "windows 7", "windows xp",
+              "macos", "mac os", "os x")
+
+
+def _classify_device(name, os_name, os_platform, tmap: dict):
+    """servidor x endpoint: 1) tipo AUTORITATIVO do inventario endpointSecurity (por nome);
+    2) fallback pelo sistema operacional (Server -> servidor; Windows client/mac -> endpoint).
+    Devolve 'server' | 'desktop' | None (nao classificado). Nunca infere pelo texto do hostname."""
+    key = (name or "").split(".")[0].strip().lower()
+    info = tmap.get(key)
+    if info and info.get("type") in ("server", "desktop"):
+        return info["type"]
+    osn = str(os_name or "").lower()
+    if "server" in osn:
+        return "server"
+    if any(c in osn for c in _CLIENT_OS):
+        return "desktop"
+    if str(os_platform or "").lower() in ("mac", "macos"):
+        return "desktop"
+    return None
+
+
 async def _device_type_map(v1: VisionOneClient, inv_cap: int = 30000) -> dict:
-    """Mapa deviceName(lower) -> {type, os} via inventario endpointSecurity (top=1000, rapido).
-    Usado para classificar servidor x endpoint (NAO por texto do hostname)."""
+    """Mapa deviceName(lower) -> {type, os} via inventario endpointSecurity (top=1000, ~3s/pagina).
+    Cache em processo por _DEVTYPE_TTL. Tipo autoritativo p/ classificar servidor x endpoint."""
+    now = asyncio.get_event_loop().time()
+    cached = _DEVTYPE_CACHE.get("map")
+    if cached is not None and (now - _DEVTYPE_CACHE["ts"]) < _DEVTYPE_TTL:
+        return cached
     m = {}
     items = await asyncio.wait_for(
         v1.get_paginated("/v3.0/endpointSecurity/endpoints", params={"top": 1000}, limit=inv_cap),
@@ -692,18 +725,21 @@ async def _device_type_map(v1: VisionOneClient, inv_cap: int = 30000) -> dict:
         nm = (e.get("endpointName") or "").strip().lower()
         if nm:
             m[nm] = {"type": e.get("type"), "os": e.get("osName")}
+    _DEVTYPE_CACHE["map"] = m
+    _DEVTYPE_CACHE["ts"] = now
     return m
 
 
-async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
+async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
                         app_n: int = 500, inv_cap: int = 30000, budget: int = 360) -> dict:
     """4 rankings da tela Vulnerabilidades. Amostra por risco (maior->menor)."""
     md = {"source": [], "partial": False, "limitations": [],
           "status": {"topCves": "unavailable", "topServers": "unavailable",
-                     "topEndpoints": "unavailable", "topApplications": "unavailable"},
+                     "topEndpoints": "unavailable", "topApplications": "unavailable",
+                     "exploitSummary": "unavailable"},
           "sampled": {}}
     out = {"topCves": None, "topServers": None, "topEndpoints": None,
-           "topApplications": None, "metadata": md}
+           "topApplications": None, "exploitSummary": None, "metadata": md}
 
     # 1) Top CVEs — internalAssetVulnerabilities (orderBy cveRiskLevel desc) -> re-rank por affectedAssetCount
     try:
@@ -716,6 +752,7 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
             sw = it.get("affectedSoftwares") or []
             rows.append({
                 "cve": it.get("cveId"),
+                "impactScore": it.get("cveRiskScore"),   # "Vulnerability impact score" do console
                 "affectedAssets": it.get("affectedAssetCount") or 0,
                 "cvss": it.get("cvssScore"),
                 "level": str(it.get("cveRiskLevel") or "").lower(),
@@ -723,7 +760,7 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
                 "product": (sw[0].get("name") if sw and isinstance(sw[0], dict) else None),
                 "preventionRules": len(it.get("preventionRules") or []),  # nr de regras de prevencao (virtual patching/IPS)
             })
-        rows.sort(key=lambda x: (x["affectedAssets"] or 0), reverse=True)
+        rows.sort(key=lambda x: ((x["impactScore"] or 0), (x["affectedAssets"] or 0)), reverse=True)
         out["topCves"] = rows[:10]
         md["status"]["topCves"] = "ok" if rows else "empty"
         md["sampled"]["cves"] = len(items)
@@ -731,51 +768,55 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
         if len(items) >= cve_n:
             md["partial"] = True
             md["limitations"].append(
-                f"Top CVEs: ranqueado entre os {len(items)} CVEs de MAIOR RISCO (amostra); "
-                "a API nao ordena por ativos afetados, entao um CVE de baixo risco com muitos ativos pode ficar fora.")
+                f"Top CVEs: ranqueado por Vulnerability impact score (cveRiskScore) entre os {len(items)} CVEs "
+                "de maior risco (amostra); a API nao ordena diretamente por esse score, entao re-ranqueamos no cliente.")
     except Exception as exc:  # noqa: BLE001
         log.warning("vuln.cves indisponivel: %s", diag(exc))
         md["status"]["topCves"] = _vuln_status(exc)
 
-    # 2/3) Top servidores/endpoints — vulnerableDevices + classificacao via inventario
+    # 2/3) Top servidores/endpoints — attackSurfaceDevices (rapido ~4s/pag, tem cveCount) +
+    #      classificacao servidor x endpoint pelo tipo AUTORITATIVO do endpointSecurity (fallback: SO).
     try:
-        tmap = await _device_type_map(v1, inv_cap=inv_cap)
+        tmap = {}
+        try:
+            tmap = await _device_type_map(v1, inv_cap=inv_cap)   # cache em processo; best-effort
+        except Exception as exc:  # noqa: BLE001
+            log.warning("vuln.devtypemap indisponivel (classifica so por SO): %s", diag(exc))
         devs = await asyncio.wait_for(
-            v1.get_paginated("/v3.0/asrm/vulnerableDevices", params={"top": 50}, limit=dev_n),
+            v1.get_paginated("/v3.0/asrm/attackSurfaceDevices",
+                             params={"top": 50, "orderBy": "latestRiskScore desc"}, limit=dev_n),
             timeout=budget)
         servers, endpoints, unclassified = [], [], 0
         for d in devs:
-            recs = d.get("cveRecords") or []
-            distinct = len({c.get("id") for c in recs if c.get("id")})
-            crit = sum(1 for c in recs if str(c.get("eventRiskLevel") or "").lower() == "critical")
-            high = sum(1 for c in recs if str(c.get("eventRiskLevel") or "").lower() == "high")
             nm = (d.get("deviceName") or "").strip()
-            info = tmap.get(nm.lower()) or {}
-            row = {"asset": nm or "—", "distinctCves": distinct, "crit": crit, "high": high,
-                   "os": info.get("os"), "criticality": d.get("criticality"),
-                   "lastScanned": d.get("lastScannedDateTime")}
-            if info.get("type") == "server":
+            typ = _classify_device(nm, d.get("osName"), d.get("osPlatform"), tmap)
+            row = {"asset": nm or "—", "cveCount": d.get("cveCount") or 0,
+                   "os": d.get("osName"), "criticality": d.get("criticality"),
+                   "risk": d.get("latestRiskScore")}
+            if typ == "server":
                 servers.append(row)
-            elif info.get("type") == "desktop":
+            elif typ == "desktop":
                 endpoints.append(row)
             else:
                 unclassified += 1
-        servers.sort(key=lambda x: x["distinctCves"], reverse=True)
-        endpoints.sort(key=lambda x: x["distinctCves"], reverse=True)
+        # cveCount satura em 3600 na API -> desempata por latestRiskScore p/ ordem estavel
+        servers.sort(key=lambda x: ((x["cveCount"] or 0), (x["risk"] or 0)), reverse=True)
+        endpoints.sort(key=lambda x: ((x["cveCount"] or 0), (x["risk"] or 0)), reverse=True)
         out["topServers"] = servers[:10]
         out["topEndpoints"] = endpoints[:10]
         md["status"]["topServers"] = "ok" if servers else "empty"
         md["status"]["topEndpoints"] = "ok" if endpoints else "empty"
         md["sampled"]["devices"] = len(devs)
         md["sampled"]["unclassified"] = unclassified
-        md["source"].append("asrm/vulnerableDevices + endpointSecurity/endpoints")
+        md["source"].append("asrm/attackSurfaceDevices + endpointSecurity/endpoints")
+        md["limitations"].append(
+            "Top servidores/endpoints: amostra dos devices de MAIOR RISCO (a API nao ordena por nr de CVEs), "
+            "re-ranqueada por cveCount (CVEs distintos por device; a API satura em 3600). Classificacao "
+            "servidor/endpoint pelo tipo autoritativo do endpointSecurity e, sem correspondencia, pelo SO.")
         if unclassified:
-            md["limitations"].append(
-                f"Classificacao servidor/endpoint via inventario endpointSecurity; {unclassified} device(s) "
-                "da amostra sem correspondencia (nao classificados, fora dos rankings).")
+            md["limitations"].append(f"{unclassified} device(s) da amostra sem classificacao (fora dos rankings).")
         if len(devs) >= dev_n:
             md["partial"] = True
-            md["limitations"].append(f"Top servidores/endpoints: amostra dos {len(devs)} devices vulneraveis.")
     except Exception as exc:  # noqa: BLE001
         log.warning("vuln.devices indisponivel: %s", diag(exc))
         st = _vuln_status(exc)
@@ -814,5 +855,25 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 500,
     except Exception as exc:  # noqa: BLE001
         log.warning("vuln.apps indisponivel: %s", diag(exc))
         md["status"]["topApplications"] = _vuln_status(exc)
+
+    # 5) Resumo: total de CVEs no ambiente + distribuicao por Global exploit potential.
+    #    globalExploitActivityLevel so aceita high/medium/low (somam o total) via TMV1-Filter.
+    vpath = "/v3.0/asrm/internalAssetVulnerabilities"
+    exp = {"total": None, "high": None, "medium": None, "low": None}
+    try:
+        exp["total"] = await asyncio.wait_for(_count(v1, vpath, top=50), timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vuln.exploit.total indisponivel: %s", diag(exc))
+    for lvl in ("high", "medium", "low"):
+        try:
+            exp[lvl] = await asyncio.wait_for(
+                _count(v1, vpath, extra_headers={"TMV1-Filter": f"globalExploitActivityLevel eq '{lvl}'"}, top=50),
+                timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("vuln.exploit.%s indisponivel: %s", lvl, diag(exc))
+    if exp["total"] is not None or any(exp[k] is not None for k in ("high", "medium", "low")):
+        out["exploitSummary"] = exp
+        md["status"]["exploitSummary"] = "ok"
+        md["source"].append("asrm/internalAssetVulnerabilities (globalExploitActivityLevel)")
 
     return out
