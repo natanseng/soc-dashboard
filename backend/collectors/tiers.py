@@ -152,7 +152,9 @@ def parse_posture(posture: dict) -> dict:
     }
 
     return {
-        "risk_index": posture.get("riskIndex", 0),
+        # None (não 0) quando ausente: 0 fabricaria "Baixo/verde" na TV (regra NUNCA-zero).
+        # O frontend trata None -> "—" (mesmo padrão de cve_count/surface).
+        "risk_index": posture.get("riskIndex"),
         "exposure": rcl.get("exposure", ""),
         "attack": rcl.get("attack", ""),
         "config": rcl.get("securityConfiguration", ""),
