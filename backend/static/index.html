@@ -265,6 +265,8 @@ body{
 .tlvl{background:rgba(255,255,255,.03);border-radius:7px;padding:5px 4px;text-align:center}
 .tlvl span{display:block;font-size:9px;color:var(--dim);margin-bottom:2px}
 .tlvl b{font-family:var(--display);font-size:13px;font-weight:800}
+.tgauge{height:150px;margin:2px 0 2px}
+.tgauge .echart{width:100%;height:100%}
 .tsev{display:flex;flex-direction:column;gap:5px}
 .tsevrow{display:flex;align-items:center;gap:8px}
 .tsevrow .tag{width:56px;font-size:10px;font-weight:700}
@@ -1238,13 +1240,37 @@ function _riCls(v){ return v<30?'low':(v<70?'med':'crit'); }
 function _nfp(v){ return Number(v||0).toLocaleString('pt-BR'); }
 function _sv(x){ return (x==null||x==='') ? '—' : _nfp(x); }        // nunca 0 fabricado p/ indisponivel
 function _evf(x){ return (x==null||x==='') ? '—' : (Number(x)>=100001?'100K+':_nfp(x)); }
+function tGaugeOpt(){return{series:[{type:'gauge',startAngle:210,endAngle:-30,min:0,max:100,radius:'94%',center:['50%','62%'],
+  progress:{show:false},
+  pointer:{show:true,length:'55%',width:4,itemStyle:{color:'#E7EEFB'}},
+  axisLine:{lineStyle:{width:11,color:[[0.3,'#27D98A'],[0.7,'#FFD23F'],[1,'#FF2E63']]}},
+  axisTick:{show:false},splitLine:{distance:-15,length:8,lineStyle:{color:'#243352',width:1}},
+  axisLabel:{distance:-1,color:'#5A6B8C',fontSize:8},
+  anchor:{show:true,size:8,itemStyle:{color:'#E7EEFB'}},
+  title:{offsetCenter:[0,'33%'],color:'#8696B8',fontSize:9.5,fontFamily:'Oxanium'},
+  detail:{valueAnimation:true,offsetCenter:[0,'3%'],fontSize:30,fontWeight:800,fontFamily:'Oxanium',color:'#FFD23F',formatter:'{value}'},
+  data:[{value:0,name:'RISK INDEX · 0–100'}]}]};}
+function _tGaugeSet(id, v){
+  const c=charts['g_'+id]; if(!c) return;
+  const hasV=Number.isFinite(v);
+  const col=!hasV?'#5A6B8C':(v<30?'#27D98A':(v<70?'#FFD23F':'#FF2E63'));
+  c.setOption({series:[{detail:{color:col,formatter:hasV?'{value}':'—'},
+    data:[{value:hasV?Math.round(v*10)/10:0,name:'RISK INDEX · 0–100'}]}]});
+}
 function buildDashCols(){
   const wrap=document.getElementById('dashCols'); if(!wrap) return;
   wrap.innerHTML = DASH_TENANTS.map(t=>
     `<div class="tcol" id="tcol-${t.id}" style="--tcol-accent:${t.accent}">`+
-    `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off">● —</div></div>`+
-    `<div style="color:var(--dim);font-size:12px;padding:24px 0;text-align:center">Carregando…</div>`+
+    `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off" id="tlive_${t.id}">● —</div></div>`+
+    `<div class="tsec"><div class="tsec-h">Nível de risco <span>ASRM · Risk Index</span></div>`+
+      `<div class="tgauge"><div class="echart" id="g_${t.id}"></div></div>`+
+      `<div class="tlvls" id="lvls_${t.id}"></div></div>`+
+    `<div class="tsec"><div class="tsec-h">Superfície de Ataque <span>exposição</span></div>`+
+      `<div class="tsurf" id="surf_${t.id}"></div></div>`+
+    `<div class="tsec grow"><div class="tsec-h">Fatores de risco <span>ativos afetados</span></div>`+
+      `<div class="tfactors" id="fact_${t.id}"></div></div>`+
     `</div>`).join('');
+  DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
 }
 function _mtSevRows(wb){
   const rows=[['critical','Critical','crit'],['high','High','high'],['medium','Medium','med'],['low','Low','low']];
@@ -1264,51 +1290,32 @@ function _mtFactorRows(factors){
       `<span class="tfval c-${c}">${_nfp(a)}</span></div>`; }).join('');
 }
 function renderTenantColumn(t, d){
-  const col=document.getElementById('tcol-'+t.id); if(!col) return;
-  const p=(d&&d.posture)||{}, wb=(d&&d.workbench)||{}, ev=(d&&d.events)||{};
+  if(!document.getElementById('tcol-'+t.id)) return;
+  const p=(d&&d.posture)||{}, s=p.surface||{};
   const ri=parseFloat(p.risk_index!=null?p.risk_index:p.riskIndex), hasRi=Number.isFinite(ri);
-  const ok = d && (hasRi || Object.keys(wb).length || Object.keys(ev).length);
-  if(!ok){
-    col.innerHTML=`<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off">● SEM DADOS</div></div>`+
-      `<div style="color:var(--high);font-size:12px;padding:24px 0;text-align:center">Dados indisponíveis</div>`;
-    return;
-  }
-  const riCls=hasRi?_riCls(ri):'med';
+  const ok = d && (hasRi || (Array.isArray(p.factors)&&p.factors.length) || (s&&Object.keys(s).length));
+  const liveEl=document.getElementById('tlive_'+t.id);
+  if(liveEl){ liveEl.textContent = ok?'● AO VIVO':'● SEM DADOS'; liveEl.className='tlive'+(ok?'':' off'); }
+  // Nivel de risco (velocimetro)
+  _tGaugeSet(t.id, ri);
   const lvl=(x)=>{ const m=_LVL[String(x||'').toLowerCase()]; return m?`<b class="${m.c}">${m.t}</b>`:'<b>—</b>'; };
-  const hasWb=!!(wb && (wb.critical!=null||wb.high!=null||wb.medium!=null||wb.low!=null));
-  const crit=+wb.critical||0,high=+wb.high||0,med=+wb.medium||0,low=+wb.low||0, totA=crit+high+med+low;
-  const alertsBody = hasWb
-    ? `<div class="tsev">${_mtSevRows(wb)}</div>`+
-      `<div class="tstat"><div><b>${_sv(wb.open)}</b><span>Abertos</span></div>`+
-        `<div><b class="c-high">${_sv(wb.in_progress)}</b><span>Investig.</span></div>`+
-        `<div><b class="c-ok">${_sv(wb.closed)}</b><span>Fechados</span></div></div>`
-    : `<div style="color:var(--dim);font-size:11px;padding:6px 0">Dados indisponíveis</div>`;
-  const s=p.surface||{};
-  col.innerHTML=
-    `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive">● AO VIVO</div></div>`+
-    `<div class="tsec"><div class="triskrow">`+
-      `<div class="ri-num c-${riCls}">${hasRi?(Math.round(ri*10)/10).toLocaleString('pt-BR'):'—'}</div>`+
-      `<div class="ri-meta"><div class="ri-lbl">RISK INDEX · 0–100</div>`+
-      `<div class="ri-bar"><div class="ri-fill bg-${riCls}" style="width:${hasRi?Math.max(2,Math.min(100,ri)):0}%"></div></div></div></div>`+
-      `<div class="tlvls">`+
-        `<div class="tlvl"><span>Exposição</span>${lvl(p.exposure)}</div>`+
-        `<div class="tlvl"><span>Ataque</span>${lvl(p.attack)}</div>`+
-        `<div class="tlvl"><span>Config.</span>${lvl(p.config)}</div></div></div>`+
-    `<div class="tsec"><div class="tsec-h">Alertas <span>por criticidade</span><b class="c-crit">${hasWb?_nfp(totA):'—'}</b></div>${alertsBody}</div>`+
-    `<div class="tsec"><div class="tsec-h">Eventos <span>detecções</span></div>`+
-      `<div class="tkpis"><div><b>${_evf(ev.e24h)}</b><span>24h</span></div>`+
-        `<div><b>${_evf(ev.e7d)}</b><span>7 dias</span></div>`+
-        `<div><b>${_evf(ev.e30d)}</b><span>30 dias</span></div></div></div>`+
-    `<div class="tsec"><div class="tsec-h">Attack Surface <span>exposição</span></div>`+
-      `<div class="tsurf">`+
-        `<div><b class="c-high">${_sv(s.public_ip)}</b><span>IPs públicos</span></div>`+
-        `<div><b class="c-med">${_sv(s.ports)}</b><span>Portas</span></div>`+
-        `<div><b class="c-high">${_sv(s.insecure_hosts)}</b><span>Hosts inseg.</span></div>`+
-        `<div><b class="c-med">${_sv(s.weak_auth)}</b><span>Auth fraca</span></div>`+
-        `<div><b class="c-crit">${_sv(s.cloud_high)}</b><span>Cloud alto</span></div>`+
-        `<div><b>${_sv(p.cve_count)}</b><span>CVEs</span></div></div></div>`+
-    `<div class="tsec grow"><div class="tsec-h">Fatores de risco <span>ativos afetados</span></div>`+
-      `<div class="tfactors">${_mtFactorRows(p.factors)}</div></div>`;
+  const lvlEl=document.getElementById('lvls_'+t.id);
+  if(lvlEl) lvlEl.innerHTML=
+    `<div class="tlvl"><span>Exposição</span>${lvl(p.exposure)}</div>`+
+    `<div class="tlvl"><span>Ataque</span>${lvl(p.attack)}</div>`+
+    `<div class="tlvl"><span>Config.</span>${lvl(p.config)}</div>`;
+  // Superficie de Ataque
+  const surfEl=document.getElementById('surf_'+t.id);
+  if(surfEl) surfEl.innerHTML=
+    `<div><b class="c-high">${_sv(s.public_ip)}</b><span>IPs públicos</span></div>`+
+    `<div><b class="c-med">${_sv(s.ports)}</b><span>Portas</span></div>`+
+    `<div><b class="c-high">${_sv(s.insecure_hosts)}</b><span>Hosts inseg.</span></div>`+
+    `<div><b class="c-med">${_sv(s.weak_auth)}</b><span>Auth fraca</span></div>`+
+    `<div><b class="c-crit">${_sv(s.cloud_high)}</b><span>Cloud alto</span></div>`+
+    `<div><b>${_sv(p.cve_count)}</b><span>CVEs</span></div>`;
+  // Fatores de risco
+  const factEl=document.getElementById('fact_'+t.id);
+  if(factEl) factEl.innerHTML=_mtFactorRows(p.factors);
 }
 async function pullDashboard(){
   await Promise.all(DASH_TENANTS.map(async t=>{
