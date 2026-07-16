@@ -219,6 +219,47 @@ async def tick_t4(v1: VisionOneClient):
         log.warning("T4 vulnerabilities falhou: %s", _diag(exc))
 
 
+# ---------------------------------------------------------------------------
+# Dashboard multi-tenant (T1 leve) — SO a tela Dashboard e multi-tenant.
+# Coleta o minimo por tenant secundario: Nivel de risco (posture) + Alertas
+# (workbench) + Eventos. As demais telas seguem no tenant primario (Prodesp).
+# ---------------------------------------------------------------------------
+async def tick_dashboard(tenant: str, v1: VisionOneClient):
+    """60s: posture + workbench + eventos de um tenant secundario -> chaves v1:{tenant}:*."""
+    try:
+        wb = await tiers.workbench_counters(v1)
+        mapping = {
+            **{k: v for k, v in wb["severity"].items()},
+            **{k.replace(" ", "_").lower(): v for k, v in wb["status"].items()},
+        }
+        await r.hset(f"v1:{tenant}:wb:counters", mapping=mapping)
+        await r.expire(f"v1:{tenant}:wb:counters", 300)
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "workbench", "data": mapping}))
+        log.info("DASH[%s] workbench OK: %s", tenant, mapping)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DASH[%s] workbench falhou: %s", tenant, exc)
+
+    try:
+        posture = await tiers.security_posture(v1)
+        flat = tiers.parse_posture(posture)
+        await r.set(f"v1:{tenant}:posture", json.dumps(flat), ex=1800)
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "posture", "data": flat}))
+        log.info("DASH[%s] posture OK: riskIndex=%s exp=%s atk=%s cfg=%s cve=%s",
+                 tenant, flat["risk_index"], flat["exposure"], flat["attack"],
+                 flat["config"], flat["cve_count"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DASH[%s] posture (ASRM/CREM) indisponivel: %s", tenant, _diag(exc))
+
+    try:
+        ev = await tiers.event_tallies(v1)
+        await r.hset(f"v1:{tenant}:events", mapping=ev)
+        await r.expire(f"v1:{tenant}:events", 600)
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "events", "data": ev}))
+        log.info("DASH[%s] events OK: 24h=%s 7d=%s 30d=%s", tenant, ev["e24h"], ev["e7d"], ev["e30d"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DASH[%s] events falhou: %s", tenant, exc)
+
+
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not settings.v1_api_token or settings.v1_api_token.startswith("__"):
@@ -236,14 +277,29 @@ async def main():
                                     args=[v1], next_run_time=now + timedelta(seconds=16))
     sched.add_job(tick_t4, "interval", seconds=settings.tier4_interval,
                   args=[v1], next_run_time=now + timedelta(seconds=24))
+    # --- Dashboard multi-tenant: tenants secundarios (so posture+workbench+eventos) ---
+    dash_clients = []
+    _secondary = [("detran-sp", settings.v1_api_token_detran),
+                  ("iamspe-sp", settings.v1_api_token_iamspe)]
+    for _i, (_tid, _tok) in enumerate(_secondary):
+        if not _tok:
+            log.warning("Dashboard: token de %s ausente -> tenant pulado", _tid)
+            continue
+        _c = VisionOneClient(_tok, settings.v1_api_base)
+        dash_clients.append(_c)
+        sched.add_job(tick_dashboard, "interval", seconds=settings.tier1_interval,
+                      args=[_tid, _c], next_run_time=now + timedelta(seconds=4 + _i * 2))
     sched.start()
-    log.info("Coletor iniciado | tenant=%s | T1=%ss T2=%ss T3=%ss",
-             TENANT, settings.tier1_interval, settings.tier2_interval, settings.tier3_interval)
+    log.info("Coletor iniciado | primario=%s | dashboard=%s | T1=%ss T2=%ss T3=%ss",
+             TENANT, [t for t, _ in _secondary], settings.tier1_interval,
+             settings.tier2_interval, settings.tier3_interval)
     try:
         while True:
             await asyncio.sleep(3600)
     finally:
         await v1.aclose()
+        for _c in dash_clients:
+            await _c.aclose()
         await r.aclose()
 
 
