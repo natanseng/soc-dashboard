@@ -344,8 +344,12 @@ body{
 .rbadge{font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:5px;margin-left:6px;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;flex-shrink:0}
 .rbadge.on{color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)}
 
-#map.screen{grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px}
-#map .p-rankings{display:flex;flex-direction:column;gap:14px}
+#map.screen{grid-template-columns:1fr 320px;grid-template-rows:minmax(0,1fr);gap:14px}
+#map .p-rankings{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
+#map .p-rankings>.panel{min-height:0}
+#map .p-rankings .phead h3{font-size:12px;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#map .p-rankings .phead .livetag{white-space:nowrap;flex-shrink:0}
+#map #cyberOrgList,#map #iocList{min-height:0}
 
 @media (max-width:1100px){
   #soc{grid-template-columns:1fr 1fr}
@@ -455,12 +459,12 @@ body{
       <div id="iocTip" style="position:absolute;display:none;pointer-events:none;z-index:20;max-width:260px;background:rgba(7,11,20,.96);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:11px;color:#E7EEFB;box-shadow:0 6px 24px rgba(0,0,0,.55);backdrop-filter:blur(4px)"></div>
     </div>
     <div class="p-rankings">
-      <div class="panel" style="flex:1">
-        <div class="phead"><span class="ico"></span><h3>Indicadores externos High/Critical por órgão</h3><span class="livetag" id="cyberLive" style="display:none">● AO VIVO</span></div>
+      <div class="panel" style="flex:0 0 auto">
+        <div class="phead"><span class="ico"></span><h3>Indicadores por órgão</h3><span class="livetag" id="cyberLive" style="display:none">● AO VIVO</span></div>
         <div class="list" id="cyberOrgList" title="Indicadores públicos externos (IP, domínio, URL) extraídos de detecções OAT e alertas Workbench High/Critical, atribuídos ao órgão dentro do tenant. Bloqueio confirmado / Associado à política / Apenas observado."></div>
         <div id="cyberCov" style="padding:7px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)"></div>
       </div>
-      <div class="panel" style="flex:0 0 auto">
+      <div class="panel" style="flex:1 1 auto">
         <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">por risco</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
         <div class="list" id="iocList"></div>
       </div>
@@ -1208,7 +1212,7 @@ function applyIoc(d){
   const il=document.getElementById('iocList');
   if(il && Array.isArray(d.top)){
     il.innerHTML='';
-    d.top.slice(0,6).forEach((it,i)=>{
+    d.top.slice(0,5).forEach((it,i)=>{
       const rv=_IOC_RISK_VAR[String(it.risk||'').toLowerCase()]||'info';
       const act=String(it.action||'').toLowerCase();
       const actColor=act==='block'?'var(--ok)':'var(--dim)';
