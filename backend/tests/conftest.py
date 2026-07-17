@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_001 = REPO_ROOT / "infra" / "migrations" / "001_cyber_schema.sql"
 MIGRATION_002 = REPO_ROOT / "infra" / "migrations" / "002_cyber_tenant_organizations.sql"
 MIGRATION_003 = REPO_ROOT / "infra" / "migrations" / "003_cyber_attribution_policy.sql"
+MIGRATION_004 = REPO_ROOT / "infra" / "migrations" / "004_cyber_attribution_audit.sql"
 
 _BASE_TENANT_DDL = (
     "CREATE TABLE tenant ("
@@ -55,6 +56,7 @@ async def reg_pool():
         await setup.execute(MIGRATION_001.read_text(encoding="utf-8"))
         await setup.execute(MIGRATION_002.read_text(encoding="utf-8"))
         await setup.execute(MIGRATION_003.read_text(encoding="utf-8"))
+        await setup.execute(MIGRATION_004.read_text(encoding="utf-8"))
     finally:
         await setup.close()
 

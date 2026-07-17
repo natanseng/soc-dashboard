@@ -135,9 +135,9 @@ def resolve_organization(mode: str, enabled_org_ids, identifiers: dict,
 # ------------------------- reatribuicao idempotente (DB) -------------------------
 
 async def load_mappings(conn, tenant_id: str) -> dict:
-    """Mapeamentos ativos do tenant -> {(mapping_type, value_hash_bytes): [(org_id, confidence)]}."""
+    """Mapeamentos ativos do tenant -> {(mapping_type, value_hash): [(org_id, confidence, mapping_id)]}."""
     rows = await conn.fetch(
-        "SELECT mapping_type, mapping_value_hash, organization_id, confidence "
+        "SELECT mapping_id, mapping_type, mapping_value_hash, organization_id, confidence "
         "FROM cyber_organization_mapping "
         "WHERE tenant_id = $1 AND enabled = true "
         "  AND valid_from <= now() AND (valid_to IS NULL OR valid_to > now())",
@@ -146,13 +146,25 @@ async def load_mappings(conn, tenant_id: str) -> dict:
     idx: dict = {}
     for r in rows:
         idx.setdefault((r["mapping_type"], bytes(r["mapping_value_hash"])), []).append(
-            (r["organization_id"], r["confidence"]))
+            (r["organization_id"], r["confidence"], r["mapping_id"]))
     return idx
 
 
+def _find_mapping_id(mappings: dict, method: str, org_id: str):
+    for (mtype, _vh), lst in mappings.items():
+        if mtype == method:
+            for (o, _c, mid) in lst:
+                if o == org_id:
+                    return mid
+    return None
+
+
 async def reattribute_unassigned(pool, tenant_id: str, *, limit: int = 1000) -> dict:
-    """Reprocessa observacoes unassigned do tenant tentando casar mapeamentos. Idempotente:
-    so altera linhas unassigned; nao duplica; nao toca linhas ja atribuidas."""
+    """Reprocessa observacoes elegiveis do tenant casando mapeamentos. Idempotente e auditavel.
+
+    Regra 2/3: atua SOMENTE em linhas com organization_id IS NULL, status='unassigned' e
+    method='instance_mapping_pending'. NAO sobrescreve atribuicoes existentes/ambiguas/manuais/
+    de alta confianca. Regra 4: cada mudanca gera linha em cyber_attribution_audit."""
     result = {"scanned": 0, "reattributed": 0, "ambiguous": 0, "still_unassigned": 0}
     async with pool.acquire() as conn:
         mode_row = await conn.fetchrow(
@@ -163,11 +175,14 @@ async def reattribute_unassigned(pool, tenant_id: str, *, limit: int = 1000) -> 
         mappings = await load_mappings(conn, tenant_id)
 
         def lookup(mt, vh):
-            return mappings.get((mt, vh), [])
+            return [(o, c) for (o, c, _mid) in mappings.get((mt, vh), [])]
 
         rows = await conn.fetch(
-            "SELECT observation_id, attribution_identifiers FROM cyber_oat_observation "
-            "WHERE tenant_id = $1 AND organization_attribution_status = 'unassigned' "
+            "SELECT observation_id, attribution_identifiers, organization_attribution_confidence "
+            "FROM cyber_oat_observation "
+            "WHERE tenant_id = $1 AND organization_id IS NULL "
+            "  AND organization_attribution_status = 'unassigned' "
+            "  AND organization_attribution_method = 'instance_mapping_pending' "
             "ORDER BY observation_id LIMIT $2", tenant_id, limit)
         for r in rows:
             result["scanned"] += 1
@@ -175,20 +190,35 @@ async def reattribute_unassigned(pool, tenant_id: str, *, limit: int = 1000) -> 
             if isinstance(ids, (str, bytes)):
                 ids = json.loads(ids)
             res = resolve_organization(mode, [], ids, lookup)
-            if res.status == "attributed" and res.organization_id:
-                await conn.execute(
-                    "UPDATE cyber_oat_observation SET organization_id=$1, "
-                    "organization_attribution_status='attributed', organization_attribution_method=$2, "
-                    "organization_attribution_confidence=$3, organization_attribution_evidence=$4 "
-                    "WHERE observation_id=$5",
-                    res.organization_id, res.method, res.confidence, res.evidence, r["observation_id"])
-                result["reattributed"] += 1
-            elif res.status == "ambiguous":
-                await conn.execute(
-                    "UPDATE cyber_oat_observation SET organization_attribution_status='ambiguous', "
-                    "organization_attribution_method='unknown', organization_attribution_evidence=$1 "
-                    "WHERE observation_id=$2", res.evidence, r["observation_id"])
-                result["ambiguous"] += 1
-            else:
-                result["still_unassigned"] += 1
+            prev_conf = r["organization_attribution_confidence"]
+            async with conn.transaction():
+                if res.status == "attributed" and res.organization_id:
+                    await conn.execute(
+                        "UPDATE cyber_oat_observation SET organization_id=$1, "
+                        "organization_attribution_status='attributed', organization_attribution_method=$2, "
+                        "organization_attribution_confidence=$3, organization_attribution_evidence=$4 "
+                        "WHERE observation_id=$5",
+                        res.organization_id, res.method, res.confidence, res.evidence, r["observation_id"])
+                    await conn.execute(
+                        "INSERT INTO cyber_attribution_audit (observation_id, tenant_id, "
+                        "previous_organization_id, previous_status, previous_method, previous_confidence, "
+                        "new_organization_id, new_status, new_method, new_confidence, mapping_id, mapping_type, reason) "
+                        "VALUES ($1,$2,NULL,'unassigned','instance_mapping_pending',$3,$4,'attributed',$5,$6,$7,$5,'reattribution')",
+                        r["observation_id"], tenant_id, prev_conf, res.organization_id, res.method,
+                        res.confidence, _find_mapping_id(mappings, res.method, res.organization_id))
+                    result["reattributed"] += 1
+                elif res.status == "ambiguous":
+                    await conn.execute(
+                        "UPDATE cyber_oat_observation SET organization_attribution_status='ambiguous', "
+                        "organization_attribution_method='unknown', organization_attribution_evidence=$1 "
+                        "WHERE observation_id=$2", res.evidence, r["observation_id"])
+                    await conn.execute(
+                        "INSERT INTO cyber_attribution_audit (observation_id, tenant_id, "
+                        "previous_organization_id, previous_status, previous_method, previous_confidence, "
+                        "new_organization_id, new_status, new_method, new_confidence, reason) "
+                        "VALUES ($1,$2,NULL,'unassigned','instance_mapping_pending',$3,NULL,'ambiguous','unknown','unavailable','reattribution')",
+                        r["observation_id"], tenant_id, prev_conf)
+                    result["ambiguous"] += 1
+                else:
+                    result["still_unassigned"] += 1
     return result

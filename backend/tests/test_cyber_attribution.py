@@ -123,8 +123,46 @@ async def test_reattribute_idempotent(reg_pool):
     assert row["organization_attribution_status"] == "attributed"
     assert row["organization_attribution_method"] == "management_scope_instance"
 
+    # regra 4: auditavel (estado anterior + novo + metodo + confianca + data)
+    async with reg_pool.acquire() as c:
+        aud = await c.fetchrow(
+            "SELECT previous_status, previous_method, new_organization_id, new_status, new_method, "
+            "new_confidence, mapping_type, reason FROM cyber_attribution_audit ORDER BY audit_id DESC LIMIT 1")
+    assert aud["previous_status"] == "unassigned" and aud["previous_method"] == "instance_mapping_pending"
+    assert aud["new_organization_id"] == "org-pge" and aud["new_status"] == "attributed"
+    assert aud["new_method"] == "management_scope_instance" and aud["mapping_type"] == "management_scope_instance"
+    assert aud["reason"] == "reattribution"
+
     r2 = await reattribute_unassigned(reg_pool, "sggd")   # idempotente
     assert r2["reattributed"] == 0 and r2["scanned"] == 0
+
+
+async def test_reattribute_ignores_non_pending_rows(reg_pool):
+    # regra 2/3: NAO tocar linhas que nao sejam org NULL + unassigned + instance_mapping_pending
+    await insert_fixture(
+        reg_pool, tenants=[("sggd", "SGGD")],
+        orgs=[("org-sggd", "sggd", "SGGD", 1, True, True), ("org-pge", "sggd", "PGE", 2, True, True)],
+        cfgs=[("sggd", "org-sggd", True, True, True, True)])
+    async with reg_pool.acquire() as c:
+        await c.execute("UPDATE cyber_tenant_config SET attribution_mode='instance' WHERE tenant_id='sggd'")
+        await c.execute("INSERT INTO cyber_organization_mapping "
+                        "(tenant_id,organization_id,mapping_type,mapping_value_normalized,mapping_value_hash,confidence) "
+                        "VALUES ('sggd','org-pge','management_scope_instance','sep-pge',$1,'high')", _h("sep-pge"))
+        await c.execute("INSERT INTO cyber_indicator (tenant_id,indicator_type,value_hash,value_normalized,value_raw,first_seen_at,last_seen_at) "
+                        "VALUES ('sggd','ip',$1,'8.8.8.8','8.8.8.8',now(),now())", hashlib.sha256(b"ip|8.8.8.8").digest())
+        ind = await c.fetchval("SELECT indicator_pk FROM cyber_indicator WHERE tenant_id='sggd'")
+        # linha 'ambiguous' (nao pending) que casaria por mapping — NAO deve ser tocada
+        await c.execute(
+            "INSERT INTO cyber_oat_observation "
+            "(tenant_id,indicator_pk,source,source_event_id,source_field,indicator_role,event_time,severity,"
+            " organization_attribution_status,organization_attribution_method,attribution_identifiers) "
+            "VALUES ('sggd',$1,'detections','evA','peerIp','attacker',now(),'high','ambiguous','unknown',$2::jsonb)",
+            ind, json.dumps({"managementScopeInstanceId": "sep-pge"}))
+    r = await reattribute_unassigned(reg_pool, "sggd")
+    assert r["scanned"] == 0 and r["reattributed"] == 0  # linha ambiguous ignorada
+    async with reg_pool.acquire() as c:
+        st = await c.fetchval("SELECT organization_attribution_status FROM cyber_oat_observation WHERE source_event_id='evA'")
+    assert st == "ambiguous"  # preservada
 
 
 async def test_reattribute_no_mapping_keeps_unassigned(reg_pool):
