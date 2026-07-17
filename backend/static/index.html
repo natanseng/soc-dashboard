@@ -442,24 +442,25 @@ body{
     <div class="mapwrap">
       <canvas id="mapCanvas"></canvas>
       <div class="map-ov map-stat">
-        <div class="box"><div class="v" id="iocTotal">—</div><div class="l">IOCs (total)</div></div>
-        <div class="box"><div class="v c-ok" id="iocBlock">—</div><div class="l">Em bloqueio</div></div>
-        <div class="box"><div class="v c-high" id="iocHigh">—</div><div class="l">Alto risco</div></div>
+        <div class="box"><div class="v" id="cyObs">—</div><div class="l">Observações externas</div></div>
+        <div class="box"><div class="v c-ok" id="cyBlocked">—</div><div class="l">Bloqueio confirmado</div></div>
+        <div class="box"><div class="v c-high" id="cyHigh">—</div><div class="l">High/Critical</div></div>
       </div>
       <div class="map-ov demo-badge" id="iocLive" style="display:none;color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)">● AO VIVO</div>
       <div class="map-ov map-legend">
-        <span><i style="background:var(--high)"></i> Alto</span>
-        <span><i style="background:var(--med)"></i> Médio</span>
-        <span><i style="background:var(--low)"></i> Baixo</span>
+        <span><i style="background:var(--ok)"></i> Bloqueio confirmado</span>
+        <span><i style="background:var(--med)"></i> Associado à política</span>
+        <span><i style="background:var(--dim)"></i> Apenas observado</span>
       </div>
       <div id="iocTip" style="position:absolute;display:none;pointer-events:none;z-index:20;max-width:260px;background:rgba(7,11,20,.96);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:11px;color:#E7EEFB;box-shadow:0 6px 24px rgba(0,0,0,.55);backdrop-filter:blur(4px)"></div>
     </div>
     <div class="p-rankings">
-      <div class="panel" style="flex:0 0 auto">
-        <div class="phead"><span class="ico"></span><h3>IOCs por Tipo</h3><span class="livetag" id="iocTypeLive" style="display:none">● AO VIVO</span></div>
-        <div class="list" id="iocTypeList"></div>
-      </div>
       <div class="panel" style="flex:1">
+        <div class="phead"><span class="ico"></span><h3>Indicadores externos High/Critical por órgão</h3><span class="livetag" id="cyberLive" style="display:none">● AO VIVO</span></div>
+        <div class="list" id="cyberOrgList" title="Indicadores públicos externos (IP, domínio, URL) extraídos de detecções OAT e alertas Workbench High/Critical, atribuídos ao órgão dentro do tenant. Bloqueio confirmado / Associado à política / Apenas observado."></div>
+        <div id="cyberCov" style="padding:7px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)"></div>
+      </div>
+      <div class="panel" style="flex:0 0 auto">
         <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">por risco</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
         <div class="list" id="iocList"></div>
       </div>
@@ -774,7 +775,7 @@ function drawMap(){
     ctx.beginPath();ctx.fillStyle='rgba(39,217,138,1)';ctx.arc(sp.x,sp.y,4,0,7);ctx.fill();
     ctx.beginPath();ctx.fillStyle='#fff';ctx.arc(sp.x,sp.y,1.7,0,7);ctx.fill();
     ctx.font='600 11px Oxanium, sans-serif';ctx.fillStyle='rgba(39,217,138,.95)';ctx.textAlign='left';
-    ctx.fillText('PRODESP · SOC', sp.x+12, sp.y+4);
+    ctx.fillText('SOC ESTADUAL', sp.x+12, sp.y+4);
   }
   requestAnimationFrame(drawMap);
 }
@@ -831,6 +832,7 @@ function go(i){
   const sc=document.getElementById(screens[cur]); sc.classList.add('active');
   navDots.children[cur].classList.add('on');
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
+  if(screens[cur]==='map'){ loadCyber(); }                   // tela Cyber: dados reais /cyber/*
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
 }
@@ -858,6 +860,85 @@ function refreshData(){
   pullDashboard();
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
+  if(act && act.id==='map') loadCyber();   // atualiza a tela Cyber com dados reais
+}
+
+/* ---------- Tela Cyber (§18): dados REAIS de /cyber/* ----------
+   Diferencia 0 (valor válido) de indisponível ('—' / "Dados indisponíveis").
+   Quadro por órgão dentro do tenant (Tenant 1─N Órgãos) + não atribuídos + cobertura. */
+let _cyberBusy=false;
+function _cyNum(v){ return Number(v||0).toLocaleString('pt-BR'); }
+async function loadCyber(){
+  if(_cyberBusy) return; _cyberBusy=true;
+  const listEl=document.getElementById('cyberOrgList'), covEl=document.getElementById('cyberCov');
+  const live=document.getElementById('cyberLive');
+  const setBox=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=(v==null?'—':_cyNum(v)); };
+  const _get=(p)=>fetch(API_BASE+p,{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
+  try{
+    const [sum,org,ten,cov]=await Promise.all([
+      _get('/cyber/summary'), _get('/cyber/by-organization'), _get('/cyber/by-tenant'), _get('/cyber/coverage')]);
+    // caixas de estatística: observações externas / bloqueio confirmado / high+critical
+    if(sum && sum.status==='ok'){
+      const s=sum.summary; setBox('cyObs',s.observations); setBox('cyBlocked',s.blocked_confirmed);
+      setBox('cyHigh',(s.high||0)+(s.critical||0));
+      if(live) live.style.display='';
+    } else { setBox('cyObs',null); setBox('cyBlocked',null); setBox('cyHigh',null); if(live) live.style.display='none'; }
+    if(!listEl) return;
+    if(!org || org.status!=='ok'){
+      listEl.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>';
+      if(covEl) covEl.textContent=''; return;
+    }
+    // não atribuídos por tenant (de /cyber/by-tenant)
+    const unBy={}; if(ten && ten.status==='ok') (ten.tenants||[]).forEach(t=>{ unBy[t.tenantId]=t.unassigned; });
+    const orgs=org.organizations||[];
+    if(!orgs.length){ listEl.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Sem órgãos habilitados</span></div>'; }
+    else {
+      let html='', curT=null;
+      const capTag=(c)=>{ const col=c==='full'?'var(--ok)':(c==='partial'?'var(--med)':'var(--dim)');
+        return '<span style="color:'+col+'">cap:'+_esc(c||'—')+'</span>'; };
+      const enf=(o)=>'<span style="color:var(--ok)" title="Bloqueio confirmado">'+_cyNum(o.blockedConfirmed)+'</span>/'+
+        '<span style="color:var(--med)" title="Associado à política">'+_cyNum(o.policyMatched)+'</span>/'+
+        '<span style="color:var(--dim)" title="Apenas observado">'+_cyNum((o.observedOnly||0)+(o.observedNotPrevented||0))+'</span>';
+      orgs.forEach(o=>{
+        if(o.tenantId!==curT){
+          // fecha não atribuídos do tenant anterior
+          if(curT!==null){ const u=unBy[curT]; if(u && (u.observations||u.ambiguous)){
+            html+='<div class="li" style="opacity:.72"><span class="nm" style="font-style:italic">↳ Não atribuídos</span>'+
+              '<span class="sc">'+_cyNum(u.externalDistinct)+' ind · '+_cyNum(u.observations)+' obs'+
+              (u.ambiguous?(' · '+_cyNum(u.ambiguous)+' amb'):'')+'</span></div>'; } }
+          curT=o.tenantId;
+          html+='<div class="li" style="opacity:.85;background:rgba(255,255,255,.03)"><span class="rank" style="background:none"></span>'+
+            '<span class="nm" style="font-weight:700;letter-spacing:.3px">'+_esc(o.tenantName||o.tenantId)+'</span></div>';
+        }
+        html+='<div class="li" style="flex-direction:column;align-items:stretch;gap:4px">'+
+          '<div style="display:flex;align-items:center;gap:8px">'+
+            '<span class="nm" style="flex:1">'+_esc(o.organizationName)+'</span>'+
+            '<span class="sc" style="font-size:12px">'+_cyNum(o.externalDistinct)+' ind</span></div>'+
+          '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center">'+
+            '<span>'+_cyNum(o.observations)+' obs</span>'+
+            '<span title="Bloqueio confirmado / Associado à política / Apenas observado">'+enf(o)+'</span>'+
+            (o.workbenches?('<span>WB '+_cyNum(o.workbenches)+'</span>'):'')+capTag(o.capability)+
+          '</div></div>';
+      });
+      // não atribuídos do último tenant
+      if(curT!==null){ const u=unBy[curT]; if(u && (u.observations||u.ambiguous)){
+        html+='<div class="li" style="opacity:.72"><span class="nm" style="font-style:italic">↳ Não atribuídos</span>'+
+          '<span class="sc">'+_cyNum(u.externalDistinct)+' ind · '+_cyNum(u.observations)+' obs'+
+          (u.ambiguous?(' · '+_cyNum(u.ambiguous)+' amb'):'')+'</span></div>'; } }
+      listEl.innerHTML=html;
+    }
+    // rodapé: cobertura de atribuição + workbench + SO ativos
+    if(covEl){
+      if(cov && cov.status==='ok'){
+        const g=cov.global; let f='Cobertura de atribuição: <b style="color:var(--txt)">'+g.coveragePct+'%</b> ('+_cyNum(g.attributed)+'/'+_cyNum(g.total)+')';
+        if(sum && sum.status==='ok'){ f+=' · WB '+_cyNum(sum.summary.workbench_indicators)+' · SO ativos '+_cyNum(sum.summary.suspicious_objects_active); }
+        covEl.innerHTML=f;
+      } else covEl.textContent='Cobertura indisponível';
+    }
+  } catch(e){
+    if(listEl) listEl.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>';
+    if(covEl) covEl.textContent='';
+  } finally { _cyberBusy=false; }
 }
 
 /* ======================================================
