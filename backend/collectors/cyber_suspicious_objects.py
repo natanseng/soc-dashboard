@@ -83,13 +83,16 @@ async def run_sync(pool, tenant_id: str, token: str, *, base: Optional[str] = No
         stats["mode"] = "dry_run"
         return stats
 
-    metrics = await persist_sync(pool, tenant_id, rows, page.pages, started=started)
+    metrics = await persist_sync(pool, tenant_id, rows, page.pages, started=started,
+                                 complete=(page.stop_reason == "complete"))
     stats.update(metrics)
     return stats
 
 
-async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None) -> dict:
-    """Persiste (staging set-based) o lote de SOs de rede. Idempotente. Retorna metricas."""
+async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None, complete: bool = True) -> dict:
+    """Persiste (staging set-based) o lote de SOs de rede. Idempotente. Retorna metricas.
+    complete=False (fetch truncado): NAO executa a fase de remocao (nao inferir remocao de lote
+    parcial) e marca status='partial'."""
     started = started or datetime.now(timezone.utc)
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -123,7 +126,7 @@ async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None) 
                 "SELECT count(*) FROM so_stage s JOIN cyber_indicator i "
                 "ON i.tenant_id=$1 AND i.indicator_type=s.indicator_type AND i.value_normalized=s.value_normalized "
                 "LEFT JOIN cyber_suspicious_object so ON so.indicator_pk=i.indicator_pk "
-                "WHERE so.indicator_pk IS NULL", tenant_id)
+                "WHERE so.indicator_pk IS NULL OR NOT so.is_active", tenant_id)
             modified = await conn.fetchval(
                 "SELECT count(*) FROM so_stage s JOIN cyber_indicator i "
                 "ON i.tenant_id=$1 AND i.indicator_type=s.indicator_type AND i.value_normalized=s.value_normalized "
@@ -142,7 +145,14 @@ async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None) 
                 "  OR so.risk_level IS DISTINCT FROM s.risk_level "
                 "  OR so.in_exception_list IS DISTINCT FROM s.in_exception_list)", tenant_id)
 
-            # historico: 'added' (novos)
+            # fecha intervalo 'removed' aberto de SOs que REAPARECEM (inativos que voltaram ao lote)
+            await conn.execute(
+                "UPDATE cyber_suspicious_object_history h SET valid_to=now() "
+                "FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
+                "JOIN so_stage s ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
+                "WHERE i.tenant_id=$1 AND NOT so.is_active AND h.indicator_pk=so.indicator_pk AND h.valid_to IS NULL", tenant_id)
+
+            # historico: 'added' (novos e reativados)
             await conn.execute(
                 "INSERT INTO cyber_suspicious_object_history (indicator_pk, tenant_id, valid_from, "
                 "scan_action, risk_level, in_exception_list, change_type, policy_match_basis) "
@@ -150,7 +160,7 @@ async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None) 
                 "FROM so_stage s JOIN cyber_indicator i "
                 "ON i.tenant_id=$1 AND i.indicator_type=s.indicator_type AND i.value_normalized=s.value_normalized "
                 "LEFT JOIN cyber_suspicious_object so ON so.indicator_pk=i.indicator_pk "
-                "WHERE so.indicator_pk IS NULL", tenant_id)
+                "WHERE so.indicator_pk IS NULL OR NOT so.is_active", tenant_id)
             # historico: 'modified'
             await conn.execute(
                 "INSERT INTO cyber_suspicious_object_history (indicator_pk, tenant_id, valid_from, "
@@ -176,39 +186,43 @@ async def persist_sync(pool, tenant_id: str, rows, pages: int, *, started=None) 
                 "notes=EXCLUDED.notes, api_last_modified_at=EXCLUDED.api_last_modified_at, "
                 "expired_at=EXCLUDED.expired_at, last_seen_at=now(), is_active=true, updated_at=now()", tenant_id)
 
-            # removidos: SO ativo cujo indicador nao esta mais no lote
-            removed = await conn.fetchval(
-                "SELECT count(*) FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
-                "LEFT JOIN so_stage s ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
-                "WHERE i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
-            await conn.execute(
-                "INSERT INTO cyber_suspicious_object_history (indicator_pk, tenant_id, valid_from, "
-                "scan_action, risk_level, in_exception_list, change_type, policy_match_basis) "
-                "SELECT so.indicator_pk, $1, now(), so.scan_action, so.risk_level, so.in_exception_list, 'removed', 'current_state' "
-                "FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
-                "LEFT JOIN so_stage s ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
-                "WHERE i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
-            await conn.execute(
-                "UPDATE cyber_suspicious_object so SET is_active=false, updated_at=now() "
-                "FROM cyber_indicator i LEFT JOIN so_stage s "
-                "ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
-                "WHERE so.indicator_pk=i.indicator_pk AND i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
+            # removidos: SO ativo cujo indicador nao esta mais no lote — SOMENTE em fetch COMPLETO
+            # (em fetch truncado nao se pode inferir remocao a partir de lote parcial)
+            removed = 0
+            if complete:
+                removed = await conn.fetchval(
+                    "SELECT count(*) FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
+                    "LEFT JOIN so_stage s ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
+                    "WHERE i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
+                await conn.execute(
+                    "INSERT INTO cyber_suspicious_object_history (indicator_pk, tenant_id, valid_from, "
+                    "scan_action, risk_level, in_exception_list, change_type, policy_match_basis) "
+                    "SELECT so.indicator_pk, $1, now(), so.scan_action, so.risk_level, so.in_exception_list, 'removed', 'current_state' "
+                    "FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
+                    "LEFT JOIN so_stage s ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
+                    "WHERE i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
+                await conn.execute(
+                    "UPDATE cyber_suspicious_object so SET is_active=false, updated_at=now() "
+                    "FROM cyber_indicator i LEFT JOIN so_stage s "
+                    "ON s.indicator_type=i.indicator_type AND s.value_normalized=i.value_normalized "
+                    "WHERE so.indicator_pk=i.indicator_pk AND i.tenant_id=$1 AND so.is_active AND s.value_normalized IS NULL", tenant_id)
 
             active_total = await conn.fetchval(
                 "SELECT count(*) FROM cyber_suspicious_object so JOIN cyber_indicator i ON i.indicator_pk=so.indicator_pk "
                 "WHERE i.tenant_id=$1 AND so.is_active", tenant_id)
 
             dur_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            status = "ok" if complete else "partial"
             await conn.execute(
                 "INSERT INTO cyber_collection_state (tenant_id, collector, source, severity_scope, "
                 "last_attempt_at, last_success_at, pages, received, inserted, updated, duplicates, "
                 "duration_ms, status, updated_at) "
-                "VALUES ($1,'suspicious_object','all','all', now(), now(), $2,$3,$4,$5,$6,$7,'ok', now()) "
+                "VALUES ($1,'suspicious_object','all','all', now(), now(), $2,$3,$4,$5,$6,$7,$8, now()) "
                 "ON CONFLICT (tenant_id, collector, source, severity_scope) DO UPDATE SET "
                 "last_attempt_at=now(), last_success_at=now(), pages=EXCLUDED.pages, received=EXCLUDED.received, "
                 "inserted=EXCLUDED.inserted, updated=EXCLUDED.updated, duplicates=EXCLUDED.duplicates, "
-                "duration_ms=EXCLUDED.duration_ms, status='ok', updated_at=now()",
-                tenant_id, pages, len(rows), int(added), int(modified), int(collisions), dur_ms)
+                "duration_ms=EXCLUDED.duration_ms, status=EXCLUDED.status, updated_at=now()",
+                tenant_id, pages, len(rows), int(added), int(modified), int(collisions), dur_ms, status)
 
     return {"mode": "sync", "added": int(added), "modified": int(modified),
             "removed": int(removed), "collisions": int(collisions),

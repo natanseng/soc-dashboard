@@ -62,7 +62,7 @@ def _ho_value(ho) -> Optional[str]:
 
 def _infer_type(ho_type: str, field: str, raw: str) -> Optional[str]:
     t = (ho_type or "").lower()
-    if t == "url" or field == "request":
+    if t == "url" or field.lower() == "request":
         return "url"
     if t == "ip":
         return "ip"
@@ -139,8 +139,8 @@ def classify_enforcement(detection: dict) -> Tuple[str, Optional[str], Optional[
     detail = detection.get("detail") or {}
     action_field = None
     raw_act = None
-    # 1) act no detail
-    if "act" in detail:
+    # 1) act no detail (presente E com valor; vazio cai no fallback)
+    if _norm_act(detail.get("act")) is not None:
         action_field, raw_act = "detail.act", detail.get("act")
     else:
         # 2) act em highlightedObjects

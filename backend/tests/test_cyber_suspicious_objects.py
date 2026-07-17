@@ -78,6 +78,39 @@ async def test_so_sync_modified_and_removed(reg_pool):
     assert hmod == 1 and hrem == 1 and inactive == 1 and act == "log"
 
 
+async def test_so_truncated_skips_removal(reg_pool):
+    await _prep(reg_pool)
+    await persist_sync(reg_pool, "prodesp-sp", classify([_so("ip", "8.8.8.8"), _so("domain", "evil.com")])[0], 1)
+    # fetch truncado (complete=False): NAO remove o domain ausente do lote parcial
+    m = await persist_sync(reg_pool, "prodesp-sp", classify([_so("ip", "8.8.8.8")])[0], 1, complete=False)
+    assert m["removed"] == 0 and m["active_total"] == 2
+    async with reg_pool.acquire() as c:
+        st = await c.fetchval("SELECT status FROM cyber_collection_state WHERE tenant_id='prodesp-sp' AND collector='suspicious_object'")
+    assert st == "partial"
+
+
+async def test_so_reactivation_history(reg_pool):
+    await _prep(reg_pool)
+    await persist_sync(reg_pool, "prodesp-sp", classify([_so("ip", "8.8.8.8"), _so("domain", "evil.com")])[0], 1)
+    await persist_sync(reg_pool, "prodesp-sp", classify([_so("ip", "8.8.8.8")])[0], 1)   # remove domain
+    async with reg_pool.acquire() as c:
+        inact = await c.fetchval("SELECT NOT so.is_active FROM cyber_suspicious_object so JOIN cyber_indicator i "
+                                 "ON i.indicator_pk=so.indicator_pk WHERE i.value_normalized='evil.com'")
+    assert inact is True
+    m = await persist_sync(reg_pool, "prodesp-sp", classify([_so("ip", "8.8.8.8"), _so("domain", "evil.com")])[0], 1)
+    assert m["added"] == 1   # reativacao contabilizada como 'added'
+    async with reg_pool.acquire() as c:
+        active = await c.fetchval("SELECT so.is_active FROM cyber_suspicious_object so JOIN cyber_indicator i "
+                                  "ON i.indicator_pk=so.indicator_pk WHERE i.value_normalized='evil.com'")
+        open_removed = await c.fetchval("SELECT count(*) FROM cyber_suspicious_object_history h JOIN cyber_indicator i "
+                                        "ON i.indicator_pk=h.indicator_pk WHERE i.value_normalized='evil.com' "
+                                        "AND h.change_type='removed' AND h.valid_to IS NULL")
+        open_added = await c.fetchval("SELECT count(*) FROM cyber_suspicious_object_history h JOIN cyber_indicator i "
+                                      "ON i.indicator_pk=h.indicator_pk WHERE i.value_normalized='evil.com' "
+                                      "AND h.change_type='added' AND h.valid_to IS NULL")
+    assert active is True and open_removed == 0 and open_added == 1
+
+
 async def test_so_sync_collision_counted(reg_pool):
     await _prep(reg_pool)
     async with reg_pool.acquire() as c:

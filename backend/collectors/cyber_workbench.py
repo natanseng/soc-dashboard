@@ -181,17 +181,21 @@ async def run_wb(pool, tenant_id: str, token: str, *, base: Optional[str] = None
             for w in rows:
                 stats[await _persist_wb(conn, tenant_id, w)] += 1
             new_links, linked, unlinked = await _link_and_count(conn, tenant_id)
-            status = "ok" if pr.stop_reason == "complete" else "partial"
+            complete = (pr.stop_reason == "complete")
+            status = "ok" if complete else "partial"
+            # watermark so avanca em coleta COMPLETA; truncada preserva o anterior (nao perde alertas)
+            new_wm = now if complete else wm
             await conn.execute(
                 "INSERT INTO cyber_collection_state (tenant_id, collector, source, severity_scope, "
                 "watermark_event_time, window_start, window_end, last_attempt_at, last_success_at, pages, "
                 "received, inserted, duplicates, status, updated_at) "
                 "VALUES ($1,'workbench','all','all',$2,$3,$4,now(),now(),$5,$6,$7,$8,$9,now()) "
                 "ON CONFLICT (tenant_id, collector, source, severity_scope) DO UPDATE SET "
-                "watermark_event_time=EXCLUDED.watermark_event_time, window_start=EXCLUDED.window_start, "
+                "watermark_event_time=GREATEST(cyber_collection_state.watermark_event_time, EXCLUDED.watermark_event_time), "
+                "window_start=EXCLUDED.window_start, "
                 "window_end=EXCLUDED.window_end, last_attempt_at=now(), last_success_at=now(), pages=EXCLUDED.pages, "
                 "received=EXCLUDED.received, inserted=EXCLUDED.inserted, duplicates=EXCLUDED.duplicates, "
                 "status=EXCLUDED.status, updated_at=now()",
-                tenant_id, now, start, now, pr.pages, len(pr.items), stats["inserted"], stats["duplicate"], status)
+                tenant_id, new_wm, start, now, pr.pages, len(pr.items), stats["inserted"], stats["duplicate"], status)
     stats.update({"new_links": new_links, "wb_linked": linked, "wb_unlinked": unlinked})
     return stats

@@ -45,6 +45,32 @@ def test_wb_missing_key_fields():
     assert rows == [] and disc["missing_key_fields"] == 1
 
 
+async def test_wb_watermark_not_advanced_on_truncation(reg_pool, monkeypatch):
+    from collectors import cyber_workbench as wbmod
+    from collectors.cyber_http import PageResult
+    await insert_fixture(reg_pool, tenants=[("prodesp-sp", "Prodesp")],
+                         orgs=[("org-prodesp", "prodesp-sp", "Prodesp", 1, True, True)],
+                         cfgs=[("prodesp-sp", "org-prodesp", True, True, True, True)])
+    truncated = PageResult(items=[], pages=200, truncated=True, stop_reason="item_budget")
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def paginate(self, *a, **k):
+            return truncated
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(wbmod, "CyberClient", FakeClient)
+    await wbmod.run_wb(reg_pool, "prodesp-sp", "tok")
+    async with reg_pool.acquire() as c:
+        row = await c.fetchrow("SELECT watermark_event_time, status FROM cyber_collection_state "
+                               "WHERE tenant_id='prodesp-sp' AND collector='workbench'")
+    assert row["status"] == "partial" and row["watermark_event_time"] is None   # 1a execucao truncada nao avanca
+
+
 async def test_wb_persist_link_unlinked_idempotent(reg_pool):
     await insert_fixture(reg_pool, tenants=[("prodesp-sp", "Prodesp")],
                          orgs=[("org-prodesp", "prodesp-sp", "Prodesp", 1, True, True)],

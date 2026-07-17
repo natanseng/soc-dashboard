@@ -80,6 +80,19 @@ def test_enforcement_unknown_no_act_on_detections():
     assert s == "unknown"
 
 
+def test_enforcement_empty_detail_act_falls_to_highlighted():
+    det = {"detail": {"source": "detections", "act": []},
+           "filters": [{"highlightedObjects": [{"field": "act", "type": "text", "value": "Reset"}]}]}
+    s, af, _ = classify_enforcement(det)
+    assert s == "prevented_confirmed" and af == "act"
+
+
+def test_infer_type_request_case_insensitive():
+    det = _det([_ho("Request", "url", "http://evil.com/x")])
+    inds, _ = extract_external_indicators(det)
+    assert any(i.indicator_type == "url" and i.value_normalized == "http://evil.com/x" for i in inds)
+
+
 def test_enforcement_act_from_highlighted_object():
     det = {"detail": {"source": "detections"},
            "filters": [{"highlightedObjects": [{"field": "act", "type": "text", "value": "Reset"}]}]}
