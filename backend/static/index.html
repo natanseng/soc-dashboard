@@ -251,6 +251,13 @@ body{
 .tcol-sub .tname{color:var(--muted)}
 .tsublabel{font-size:9.5px;font-weight:700;letter-spacing:.4px;color:var(--dim);text-transform:uppercase}
 .tsub-wait{display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;letter-spacing:.3px;padding:12px 0}
+.tsub-box{align-items:center;justify-content:center;text-align:center}
+.tsub-box .tsec-h{margin-bottom:2px}
+.tsub-val{font-family:var(--display);font-weight:800;font-size:48px;line-height:1;margin:8px 0 12px}
+.tsub-meta{display:flex;flex-direction:column;align-items:center;gap:8px}
+.tsub-meta .tag{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:3px 11px;border-radius:6px;border:1px solid currentColor}
+.tsub-assets{font-size:11.5px;color:var(--muted)}
+.c-dim{color:var(--dim)}
 .tcol-sub .tsec.grow{display:flex;flex-direction:column}
 .tcol-sub .tsec.grow .tsub-wait{flex:1}
 .tcol{display:flex;flex-direction:column;gap:9px;min-height:0;min-width:0;position:relative;overflow:hidden;
@@ -862,6 +869,7 @@ document.querySelector('.stage').addEventListener('mouseleave',()=>{if(paused){p
 function refreshData(){
   // dados REAIS: Dashboard multi-tenant (3 colunas) + demais telas (Prodesp)
   pullDashboard();
+  loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dados reais, cache no servidor
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
   if(act && act.id==='map') loadCyber();   // atualiza a tela Cyber com dados reais
@@ -1363,11 +1371,9 @@ function _tGaugeSet(id, v){
   c.setOption({series:[{detail:{color:col,formatter:hasV?'{value}':'—'},
     data:[{value:hasV?Math.round(v*10)/10:0,name:'RISK INDEX · 0–100'}]}]});
 }
-// Cyber Risk Subindexes (console SGGD, por tag) — ordem definida pelo usuario
-const DASH_SUBINDEX = [
-  {tag:'SGGD',name:'SGGD'},{tag:'PGE',name:'PGE'},{tag:'CGE',name:'CGE'},
-  {tag:'SPPREV',name:'SPPREV'},{tag:'SGRI',name:'SGRI'},
-];
+// Cyber Risk Subindexes (ASRM /v3.0/asrm/assetGroups): grupos vindos da API (sem hardcode).
+// Tenant com subórgãos (asset groups). Cards renderizados dinamicamente por loadSubindexes().
+const SUBINDEX_TENANT = 'sggd';
 function tenantColSkeleton(t){
   return `<div class="tcol" id="tcol-${t.id}" style="--tcol-accent:${t.accent}">`+
     `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off" id="tlive_${t.id}">● —</div></div>`+
@@ -1380,13 +1386,42 @@ function tenantColSkeleton(t){
       `<div class="tfactors" id="fact_${t.id}"></div></div>`+
     `</div>`;
 }
-function subindexCol(c){
-  const wait='<div class="tsub-wait">Aguardando dados</div>';
+const _SUB_LVL = {low:{t:'Baixo',c:'low'},medium:{t:'Médio',c:'med'},high:{t:'Alto',c:'high'},critical:{t:'Crítico',c:'crit'}};
+function subindexCard(g){
+  const lvl=String(g.riskLevel||'').toLowerCase(), L=_SUB_LVL[lvl]||{t:'—',c:'dim'};
+  const hasVal=(+g.assetCount>0)&&(g.riskIndex!=null);   // sem ativos -> subíndice '—' (como o console V1)
+  const v=hasVal?(Math.round(g.riskIndex*10)/10):null;
+  const nm=g.isRoot?(g.name==='Global'?'Organização':g.name):g.name;
+  return `<div class="tcol tcol-sub" style="--tcol-accent:${g.isRoot?'#FFB020':'#5A6B8C'}">`+
+    `<div class="tcol-head"><div class="tname">${_esc(nm)}</div><div class="tsublabel">${g.isRoot?'Organização':'Subíndice'}</div></div>`+
+    `<div class="tsec grow tsub-box">`+
+      `<div class="tsec-h">Cyber Risk Subindex <span>ASRM</span></div>`+
+      `<div class="tsub-val c-${hasVal?L.c:'dim'}">${v==null?'—':v}</div>`+
+      `<div class="tsub-meta"><span class="tag c-${L.c}">${L.t} risco</span>`+
+      `<span class="tsub-assets">${_sv(g.assetCount)} ativos</span></div>`+
+    `</div></div>`;
+}
+function _subindexMsg(txt){
   return `<div class="tcol tcol-sub" style="--tcol-accent:#5A6B8C">`+
-    `<div class="tcol-head"><div class="tname">${_esc(c.name)}</div><div class="tsublabel">Subíndice</div></div>`+
-    `<div class="tsec"><div class="tsec-h">Superfície de Ataque <span>por tag</span></div>${wait}</div>`+
-    `<div class="tsec grow"><div class="tsec-h">Fatores de risco <span>por tag</span></div>${wait}</div>`+
-    `</div>`;
+    `<div class="tcol-head"><div class="tname">Subíndices</div></div>`+
+    `<div class="tsec grow tsub-box"><div class="tsub-wait">${_esc(txt)}</div></div></div>`;
+}
+async function loadSubindexes(){
+  const w1=document.getElementById('dashCols-1'), w2=document.getElementById('dashCols-2');
+  if(!w1||!w2) return;
+  let groups=null, status='unavailable';
+  try{
+    const r=await fetch(API_BASE+'/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT),{cache:'no-store'});
+    const d=await r.json(); status=d.status;
+    if(status==='ok') groups=d.groups||[];
+  }catch(e){ status='unavailable'; }
+  if(!groups){
+    w1.innerHTML=_subindexMsg(status==='invalid'?'Tenant não configurado':'Dados indisponíveis'); w2.innerHTML=''; return;
+  }
+  const root=groups.filter(g=>g.isRoot), kids=groups.filter(g=>!g.isRoot);
+  const cards=[...root,...kids].map(subindexCard);
+  const half=Math.ceil(cards.length/2)||1;
+  w1.innerHTML=cards.slice(0,half).join(''); w2.innerHTML=cards.slice(half).join('');
 }
 function buildDashCols(){
   const w0=document.getElementById('dashCols-0');
@@ -1394,9 +1429,7 @@ function buildDashCols(){
     w0.innerHTML = DASH_TENANTS.map(tenantColSkeleton).join('');
     DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
   }
-  [['dashCols-1',DASH_SUBINDEX.slice(0,3)],['dashCols-2',DASH_SUBINDEX.slice(3)]].forEach(([wid,cols])=>{
-    const w=document.getElementById(wid); if(w) w.innerHTML = cols.map(subindexCol).join('');
-  });
+  loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dinâmico, dados reais /cyber/asset-groups
 }
 function _mtSevRows(wb){
   const rows=[['critical','Critical','crit'],['high','High','high'],['medium','Medium','med'],['low','Low','low']];

@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .cache import get_redis
-from . import db, cyber_registry, cyber_tokens, cyber_api
+from . import db, cyber_registry, cyber_tokens, cyber_api, cyber_asset_groups
 
 
 @asynccontextmanager
@@ -124,6 +124,18 @@ async def cyber_tenants():
     return cyber_registry.build_payload(
         tenants, cyber_tokens.resolve_token, updated_at=now_iso
     )
+
+
+@app.get("/cyber/asset-groups")
+async def cyber_asset_groups_route(tenantId: str):
+    """Cyber Risk Subindexes por grupo de ativos (ASRM) de um tenant.
+
+    status: ok | unavailable (sem token/DB/erro de API) | invalid (tenant nao habilitado).
+    Cache curto em Redis; nunca expoe token.
+    """
+    pool = db.get_pool()
+    redis = getattr(app.state, "redis", None)
+    return await cyber_asset_groups.get_asset_groups(pool, redis, tenantId)
 
 
 @app.get("/cyber/summary")
