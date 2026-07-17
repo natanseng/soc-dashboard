@@ -12,7 +12,7 @@ async def test_no_saturation_single_window():
         return 10
 
     async def ff(ws, we):
-        return ([f"item-{ws.isoformat()}"], 1)
+        return ([f"item-{ws.isoformat()}"], 1, True)
 
     r = await collect_adaptive(cf, ff, T0, T0 + 24 * H)
     assert r.complete and r.watermark == T0 + 24 * H and r.windows_done == 1
@@ -24,7 +24,7 @@ async def test_saturation_reducible_bisects_to_completion():
         return 100001 if (we - ws) > timedelta(hours=6) else 10
 
     async def ff(ws, we):
-        return ([1], 1)
+        return ([1], 1, True)
 
     r = await collect_adaptive(cf, ff, T0, T0 + 24 * H, min_window=timedelta(minutes=5))
     assert r.complete and r.watermark == T0 + 24 * H
@@ -36,7 +36,7 @@ async def test_saturation_irreducible_stops_no_watermark_advance():
         return 100001
 
     async def ff(ws, we):
-        return ([1], 1)
+        return ([1], 1, True)
 
     r = await collect_adaptive(cf, ff, T0, T0 + 24 * H, min_window=H, max_depth=20)
     assert not r.complete and r.saturated_irreducible and r.stop_reason == "saturated_irreducible"
@@ -50,7 +50,7 @@ async def test_partial_completion_stops_on_gap_watermark_at_boundary():
         return 100001 if we > mid else 10       # satura qualquer janela que passe do meio
 
     async def ff(ws, we):
-        return ([1], 1)
+        return ([1], 1, True)
 
     r = await collect_adaptive(cf, ff, T0, T0 + 24 * H, min_window=H)
     assert not r.complete
@@ -63,8 +63,20 @@ async def test_page_budget_stops():
         return 100001 if (we - ws) > H else 10   # forca varias janelas pequenas
 
     async def ff(ws, we):
-        return ([1], 100)                        # cada janela consome 100 paginas
+        return ([1], 100, True)                  # cada janela consome 100 paginas
 
     r = await collect_adaptive(cf, ff, T0, T0 + 24 * H, min_window=timedelta(minutes=1),
                                page_budget=150)
     assert r.stop_reason == "page_budget" and not r.complete
+
+
+async def test_fetch_truncated_stops_no_watermark_advance():
+    # janela nao-saturada porem grande demais p/ paginar por completo -> incompleta -> para
+    async def cf(ws, we):
+        return 50000              # abaixo do teto de saturacao -> nao bissecta
+
+    async def ff(ws, we):
+        return ([1], 250, False)   # complete=False (truncou por orcamento de paginas do fetch)
+
+    r = await collect_adaptive(cf, ff, T0, T0 + 24 * H)
+    assert not r.complete and r.stop_reason == "fetch_truncated" and r.watermark == T0

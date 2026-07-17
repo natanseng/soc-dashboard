@@ -48,11 +48,15 @@ async def collect_adaptive(count_fn, fetch_fn, start: datetime, end: datetime, *
             if not await process(ws, mid, depth + 1):     # metade mais antiga primeiro
                 return False
             return await process(mid, we, depth + 1)
-        # nao saturado -> pagina a janela inteira
-        items, pages = await fetch_fn(ws, we)
+        # nao saturado -> pagina a janela (fetch_fn retorna (items, pages, complete))
+        items, pages, complete = await fetch_fn(ws, we)
         r.items.extend(items)
         r.pages += pages
         r.windows_done += 1
+        if not complete:
+            # janela nao paginou por completo (orcamento/limite) -> incompleta: NAO avanca watermark
+            r.stop_reason = "fetch_truncated"
+            return False
         r.watermark = we                                  # intervalo contiguo completo
         return True
 
