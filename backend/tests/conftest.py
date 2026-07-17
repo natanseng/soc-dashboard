@@ -1,5 +1,5 @@
 """Fixtures compartilhadas. Testes de integracao usam um banco TEMPORARIO
-(criado a partir da migration real) e NUNCA tocam o banco socdash de producao."""
+(criado a partir das migrations reais 001+002) e NUNCA tocam o banco socdash de producao."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,9 +8,9 @@ import pytest
 import pytest_asyncio
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MIGRATION = REPO_ROOT / "infra" / "migrations" / "001_cyber_schema.sql"
+MIGRATION_001 = REPO_ROOT / "infra" / "migrations" / "001_cyber_schema.sql"
+MIGRATION_002 = REPO_ROOT / "infra" / "migrations" / "002_cyber_tenant_organizations.sql"
 
-# tabela base minima (equivalente ao init.sql) exigida pelas FKs da migration
 _BASE_TENANT_DDL = (
     "CREATE TABLE tenant ("
     " tenant_id text PRIMARY KEY,"
@@ -22,7 +22,6 @@ _BASE_TENANT_DDL = (
 
 @pytest.fixture(autouse=True)
 def reset_db_pool():
-    """Garante isolamento: nenhum pool vaza entre testes."""
     from app import db
     db.set_pool(None)
     yield
@@ -31,7 +30,7 @@ def reset_db_pool():
 
 @pytest_asyncio.fixture
 async def reg_pool():
-    """Pool asyncpg contra um banco temporario com o schema REAL da migration.
+    """Pool asyncpg contra um banco temporario com o schema REAL (migrations 001 + 002).
     Pula automaticamente se o PostgreSQL nao estiver acessivel."""
     import asyncpg
     from app.config import settings
@@ -52,7 +51,8 @@ async def reg_pool():
     setup = await asyncpg.connect(dsn=settings.db_dsn, database=dbname)
     try:
         await setup.execute(_BASE_TENANT_DDL)
-        await setup.execute(MIGRATION.read_text(encoding="utf-8"))
+        await setup.execute(MIGRATION_001.read_text(encoding="utf-8"))
+        await setup.execute(MIGRATION_002.read_text(encoding="utf-8"))
     finally:
         await setup.close()
 
@@ -68,19 +68,25 @@ async def reg_pool():
             await admin.close()
 
 
-async def insert_fixture(pool, orgs, tenants, cfgs):
-    """Insere linhas de teste (organization/tenant/cyber_tenant_config)."""
+async def insert_fixture(pool, tenants, orgs, cfgs):
+    """Insere linhas de teste na ordem correta de FK: tenant -> organization -> cyber_tenant_config.
+
+    tenants: (tenant_id, display_name)
+    orgs:    (organization_id, tenant_id, name, display_order, enabled, cyber_enabled)
+    cfgs:    (tenant_id, legacy_org_id, cyber_enabled, oat, wb, so)  [enabled default=true]
+    """
     async with pool.acquire() as c:
-        for o in orgs:  # (org_id, name, display_order, enabled, cyber_enabled)
+        for t in tenants:
+            await c.execute("INSERT INTO tenant (tenant_id, display_name) VALUES ($1,$2)", *t)
+        for o in orgs:
             await c.execute(
-                "INSERT INTO organization (organization_id,name,display_order,enabled,cyber_enabled)"
-                " VALUES ($1,$2,$3,$4,$5)", *o,
+                "INSERT INTO organization"
+                " (organization_id, tenant_id, name, display_order, enabled, cyber_enabled)"
+                " VALUES ($1,$2,$3,$4,$5,$6)", *o,
             )
-        for t in tenants:  # (tenant_id, display_name)
-            await c.execute("INSERT INTO tenant (tenant_id,display_name) VALUES ($1,$2)", *t)
-        for cfg in cfgs:  # (tenant_id, org_id, cyber, oat, wb, so)
+        for cfg in cfgs:
             await c.execute(
                 "INSERT INTO cyber_tenant_config"
-                " (tenant_id,organization_id,cyber_enabled,oat_enabled,workbench_enabled,suspicious_objects_enabled)"
+                " (tenant_id, organization_id, cyber_enabled, oat_enabled, workbench_enabled, suspicious_objects_enabled)"
                 " VALUES ($1,$2,$3,$4,$5,$6)", *cfg,
             )

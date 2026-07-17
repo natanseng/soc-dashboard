@@ -115,13 +115,13 @@ async def cyber_tenants():
     now_iso = datetime.now(timezone.utc).isoformat()
     pool = db.get_pool()
     if pool is None:
-        return {"status": "unavailable", "organizations": [], "updatedAt": now_iso}
+        return {"status": "unavailable", "tenants": [], "updatedAt": now_iso}
     try:
-        organizations = await cyber_registry.fetch_cyber_registry(pool)
+        tenants = await cyber_registry.fetch_cyber_registry(pool)
     except Exception:  # noqa: BLE001 — nao vazar detalhes internos/DSN
-        return {"status": "unavailable", "organizations": [], "updatedAt": now_iso}
+        return {"status": "unavailable", "tenants": [], "updatedAt": now_iso}
     return cyber_registry.build_payload(
-        organizations, cyber_tokens.resolve_token, updated_at=now_iso
+        tenants, cyber_tokens.resolve_token, updated_at=now_iso
     )
 
 

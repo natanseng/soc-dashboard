@@ -1,4 +1,4 @@
-"""Testes do endpoint GET /cyber/tenants, health check e compatibilidade."""
+"""Testes do endpoint GET /cyber/tenants (tenant -> organizations), health check e compatibilidade."""
 from fastapi.testclient import TestClient
 from starlette.routing import Mount
 
@@ -9,8 +9,12 @@ from app.main import app
 from tests.fakes import FakePool, FakeRedis
 
 
-def _tenant(tid):
-    return CyberTenant(tid, tid.upper(), "https://api.xdr.trendmicro.com", True, True, True)
+def _org(oid, name=None, order=1):
+    return CyberOrganization(oid, name or oid.upper(), order, True, True)
+
+
+def _tenant(tid, orgs=()):
+    return CyberTenant(tid, tid.upper(), "https://api.xdr.trendmicro.com", True, True, True, list(orgs))
 
 
 def _resolver(configured):
@@ -20,9 +24,9 @@ def _resolver(configured):
     return r
 
 
-def _patch_registry(monkeypatch, orgs, configured):
+def _patch(monkeypatch, tenants, configured):
     async def fake_fetch(pool):
-        return orgs
+        return tenants
     monkeypatch.setattr(cyber_registry, "fetch_cyber_registry", fake_fetch)
     monkeypatch.setattr(cyber_tokens, "resolve_token", _resolver(configured))
 
@@ -30,27 +34,33 @@ def _patch_registry(monkeypatch, orgs, configured):
 # ---------------- GET /cyber/tenants ----------------
 
 def test_endpoint_complete(monkeypatch):
-    orgs = [CyberOrganization("org-a", "Org A", 1, [_tenant("a-sp")])]
-    _patch_registry(monkeypatch, orgs, {"a-sp": True})
+    _patch(monkeypatch, [_tenant("prodesp-sp", [_org("org-prodesp", "Prodesp")])], {"prodesp-sp": True})
     db.set_pool(FakePool())
     body = TestClient(app).get("/cyber/tenants").json()
-    assert body["status"] == "ok"
-    t = body["organizations"][0]["tenants"][0]
-    assert t["credentialsConfigured"] is True and t["status"] == "ok"
-    assert "updatedAt" in body
+    assert body["status"] == "ok" and "updatedAt" in body
+    t = body["tenants"][0]
+    assert t["tenantId"] == "prodesp-sp" and t["credentialsConfigured"] is True and t["status"] == "ok"
+    assert t["organizations"][0]["organizationId"] == "org-prodesp"
+
+
+def test_endpoint_tenant_with_multiple_orgs(monkeypatch):
+    _patch(monkeypatch, [_tenant("sggd", [_org("org-sggd", "SGGD", 1), _org("org-pge", "PGE", 2)])], {"sggd": True})
+    db.set_pool(FakePool())
+    orgs = TestClient(app).get("/cyber/tenants").json()["tenants"][0]["organizations"]
+    assert [o["organizationId"] for o in orgs] == ["org-sggd", "org-pge"]
 
 
 def test_endpoint_db_empty(monkeypatch):
-    _patch_registry(monkeypatch, [], {})
+    _patch(monkeypatch, [], {})
     db.set_pool(FakePool())
     body = TestClient(app).get("/cyber/tenants").json()
-    assert body["status"] == "ok" and body["organizations"] == []
+    assert body["status"] == "ok" and body["tenants"] == []
 
 
 def test_endpoint_db_unavailable():
     db.set_pool(None)
     body = TestClient(app).get("/cyber/tenants").json()
-    assert body["status"] == "unavailable" and body["organizations"] == []
+    assert body["status"] == "unavailable" and body["tenants"] == []
 
 
 def test_endpoint_db_error(monkeypatch):
@@ -59,35 +69,26 @@ def test_endpoint_db_error(monkeypatch):
     monkeypatch.setattr(cyber_registry, "fetch_cyber_registry", boom)
     db.set_pool(FakePool())
     body = TestClient(app).get("/cyber/tenants").json()
-    assert body["status"] == "unavailable" and body["organizations"] == []
+    assert body["status"] == "unavailable" and body["tenants"] == []
 
 
-def test_endpoint_partial_without_token(monkeypatch):
-    orgs = [CyberOrganization("org-a", "A", 1, [_tenant("a-sp"), _tenant("b-sp")])]
-    _patch_registry(monkeypatch, orgs, {"a-sp": True})  # b-sp sem token
+def test_endpoint_tenant_without_token(monkeypatch):
+    _patch(monkeypatch, [_tenant("iamspe-sp", [_org("org-iamspe")])], {})  # sem token
     db.set_pool(FakePool())
-    org = TestClient(app).get("/cyber/tenants").json()["organizations"][0]
-    assert org["status"] == "degraded"
-    by = {t["tenantId"]: t for t in org["tenants"]}
-    assert by["a-sp"]["credentialsConfigured"] is True
-    assert by["b-sp"]["credentialsConfigured"] is False
-    assert by["b-sp"]["status"] == "configuration_error"
+    t = TestClient(app).get("/cyber/tenants").json()["tenants"][0]
+    assert t["credentialsConfigured"] is False and t["status"] == "configuration_error"
+    assert len(t["organizations"]) == 1  # orgaos continuam listados
 
 
-def test_endpoint_multiple_orgs(monkeypatch):
-    orgs = [
-        CyberOrganization("o1", "A", 1, [_tenant("a-sp")]),
-        CyberOrganization("o2", "B", 2, [_tenant("b-sp")]),
-    ]
-    _patch_registry(monkeypatch, orgs, {"a-sp": True, "b-sp": True})
+def test_endpoint_one_tenant_failure_isolated(monkeypatch):
+    _patch(monkeypatch, [_tenant("a-sp", [_org("org-a")]), _tenant("b-sp", [_org("org-b")])], {"b-sp": True})
     db.set_pool(FakePool())
-    body = TestClient(app).get("/cyber/tenants").json()
-    assert [o["organizationId"] for o in body["organizations"]] == ["o1", "o2"]
+    by = {t["tenantId"]: t for t in TestClient(app).get("/cyber/tenants").json()["tenants"]}
+    assert by["a-sp"]["status"] == "configuration_error" and by["b-sp"]["status"] == "ok"
 
 
 def test_endpoint_no_sensitive_info(monkeypatch):
-    orgs = [CyberOrganization("org-a", "A", 1, [_tenant("a-sp")])]
-    _patch_registry(monkeypatch, orgs, {"a-sp": True})
+    _patch(monkeypatch, [_tenant("sggd", [_org("org-sggd"), _org("org-pge", order=2)])], {"sggd": True})
     db.set_pool(FakePool())
     raw = TestClient(app).get("/cyber/tenants").text.lower()
     for bad in ["token", "dsn", "password", "authorization", "v1_api", "senha"]:
@@ -105,8 +106,7 @@ def test_healthz_adds_postgres_state(monkeypatch):
     db.set_pool(FakePool())
     with TestClient(app) as c:
         body = c.get("/healthz").json()
-    assert body["status"] == "ok" and body["redis"] is True
-    assert body["postgres"] == "ok"
+    assert body["status"] == "ok" and body["redis"] is True and body["postgres"] == "ok"
 
 
 def test_healthz_pg_failure_isolated_from_redis(monkeypatch):
@@ -118,18 +118,14 @@ def test_healthz_pg_failure_isolated_from_redis(monkeypatch):
     db.set_pool(None)  # PG indisponivel
     with TestClient(app) as c:
         body = c.get("/healthz").json()
-    assert body["status"] == "ok" and body["redis"] is True   # redis reportado normalmente
-    assert body["postgres"] == "unavailable"
+    assert body["status"] == "ok" and body["redis"] is True and body["postgres"] == "unavailable"
 
 
 # ---------------- compatibilidade ----------------
 
 def test_existing_routes_still_registered():
     paths = {getattr(r, "path", None) for r in app.routes}
-    assert "/healthz" in paths
-    assert "/api/{tenant}/overview" in paths
-    assert "/ws/{tenant}" in paths
-    assert "/cyber/tenants" in paths
+    assert {"/healthz", "/api/{tenant}/overview", "/ws/{tenant}", "/cyber/tenants"} <= paths
 
 
 def test_cyber_route_registered_before_static_mount():
