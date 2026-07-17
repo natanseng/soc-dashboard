@@ -243,6 +243,16 @@ body{
 /* ===== Dashboard multi-tenant (3 colunas fixas: Prodesp | Detran | Iamspe) ===== */
 #exec{grid-template-columns:1fr;grid-template-rows:1fr}
 .dashcols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;min-height:0}
+/* sub-paginas do Dashboard (empilhadas na mesma celula do grid do #exec) */
+.dashpage{grid-area:1/1;opacity:0;transition:opacity .5s ease;pointer-events:none;display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
+.dashpage.active{opacity:1;pointer-events:auto}
+.dashpage .dashcols{flex:1}
+.dashpagehead{font-family:var(--display);font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);flex-shrink:0;padding-left:2px}
+.tcol-sub .tname{color:var(--muted)}
+.tsublabel{font-size:9.5px;font-weight:700;letter-spacing:.4px;color:var(--dim);text-transform:uppercase}
+.tsub-wait{display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;letter-spacing:.3px;padding:12px 0}
+.tcol-sub .tsec.grow{display:flex;flex-direction:column}
+.tcol-sub .tsec.grow .tsub-wait{flex:1}
 .tcol{display:flex;flex-direction:column;gap:9px;min-height:0;min-width:0;position:relative;overflow:hidden;
   background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:13px 14px}
 .tcol::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
@@ -374,7 +384,9 @@ body{
 
   <!-- ===================== EXECUTIVO ===================== -->
   <section class="screen active" id="exec">
-    <div class="dashcols" id="dashCols"></div>
+    <div class="dashpage active" id="dpage-0"><div class="dashcols" id="dashCols-0"></div></div>
+    <div class="dashpage" id="dpage-1"><div class="dashpagehead">Cyber Risk Subindexes</div><div class="dashcols" id="dashCols-1"></div></div>
+    <div class="dashpage" id="dpage-2"><div class="dashpagehead">Cyber Risk Subindexes</div><div class="dashcols" id="dashCols-2"></div></div>
   </section>
 
   <!-- ===================== SOC OPERACIONAL ===================== -->
@@ -806,19 +818,28 @@ screens.forEach((s,i)=>{
   d.innerHTML=`<span class="d"></span>${meta[s][1].split(' ')[0]}`;
   d.onclick=()=>go(i); navDots.appendChild(d);
 });
+let dashSub=0;
+function setDashPage(n){
+  n=Math.max(0,Math.min(2,n)); if(n===dashSub) return; dashSub=n;
+  document.querySelectorAll('#exec .dashpage').forEach((p,i)=>p.classList.toggle('active',i===n));
+  Object.values(charts).forEach(c=>{try{c.resize()}catch(e){}});
+}
 function go(i){
   cur=(i+screens.length)%screens.length; rotStart=performance.now();
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-dot').forEach(d=>d.classList.remove('on'));
   const sc=document.getElementById(screens[cur]); sc.classList.add('active');
   navDots.children[cur].classList.add('on');
+  if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
 }
 function rotLoop(t){
   if(!paused){
-    const k=(t-rotStart)/ROT; rotBar.style.width=Math.min(100,k*100)+'%';
-    if(k>=1)go(cur+1);
+    const el=t-rotStart, dur=(screens[cur]==='exec'?60000:ROT);   // Dashboard = 3 sub-paginas x 20s
+    if(screens[cur]==='exec') setDashPage(Math.floor(el/20000));
+    rotBar.style.width=Math.min(100,el/dur*100)+'%';
+    if(el>=dur)go(cur+1);
   } else rotBar.style.width='100%';
   requestAnimationFrame(rotLoop);
 }
@@ -1257,10 +1278,13 @@ function _tGaugeSet(id, v){
   c.setOption({series:[{detail:{color:col,formatter:hasV?'{value}':'—'},
     data:[{value:hasV?Math.round(v*10)/10:0,name:'RISK INDEX · 0–100'}]}]});
 }
-function buildDashCols(){
-  const wrap=document.getElementById('dashCols'); if(!wrap) return;
-  wrap.innerHTML = DASH_TENANTS.map(t=>
-    `<div class="tcol" id="tcol-${t.id}" style="--tcol-accent:${t.accent}">`+
+// Cyber Risk Subindexes (console SGGD, por tag) — ordem definida pelo usuario
+const DASH_SUBINDEX = [
+  {tag:'SGGD',name:'SGGD'},{tag:'PGE',name:'PGE'},{tag:'CGE',name:'CGE'},
+  {tag:'SPPREV',name:'SPPREV'},{tag:'SGRI',name:'SGRI'},
+];
+function tenantColSkeleton(t){
+  return `<div class="tcol" id="tcol-${t.id}" style="--tcol-accent:${t.accent}">`+
     `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off" id="tlive_${t.id}">● —</div></div>`+
     `<div class="tsec"><div class="tsec-h">Nível de risco <span>ASRM · Risk Index</span></div>`+
       `<div class="tgauge"><div class="echart" id="g_${t.id}"></div></div>`+
@@ -1269,8 +1293,25 @@ function buildDashCols(){
       `<div class="tsurf" id="surf_${t.id}"></div></div>`+
     `<div class="tsec grow"><div class="tsec-h">Fatores de risco <span>ativos afetados</span></div>`+
       `<div class="tfactors" id="fact_${t.id}"></div></div>`+
-    `</div>`).join('');
-  DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
+    `</div>`;
+}
+function subindexCol(c){
+  const wait='<div class="tsub-wait">Aguardando dados</div>';
+  return `<div class="tcol tcol-sub" style="--tcol-accent:#5A6B8C">`+
+    `<div class="tcol-head"><div class="tname">${_esc(c.name)}</div><div class="tsublabel">Subíndice</div></div>`+
+    `<div class="tsec"><div class="tsec-h">Superfície de Ataque <span>por tag</span></div>${wait}</div>`+
+    `<div class="tsec grow"><div class="tsec-h">Fatores de risco <span>por tag</span></div>${wait}</div>`+
+    `</div>`;
+}
+function buildDashCols(){
+  const w0=document.getElementById('dashCols-0');
+  if(w0){
+    w0.innerHTML = DASH_TENANTS.map(tenantColSkeleton).join('');
+    DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
+  }
+  [['dashCols-1',DASH_SUBINDEX.slice(0,3)],['dashCols-2',DASH_SUBINDEX.slice(3)]].forEach(([wid,cols])=>{
+    const w=document.getElementById(wid); if(w) w.innerHTML = cols.map(subindexCol).join('');
+  });
 }
 function _mtSevRows(wb){
   const rows=[['critical','Critical','crit'],['high','High','high'],['medium','Medium','med'],['low','Low','low']];

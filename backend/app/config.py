@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     # Tokens dos tenants secundarios do Dashboard multi-tenant (so a tela Dashboard)
     v1_api_token_detran: str = ""
     v1_api_token_iamspe: str = ""
+    # Console SGGD — Cyber Risk Subindexes (SGGD/PGE/CGE/SPPREV/SGRI) por tag
+    v1_api_token_sggd: str = ""
 
     # Infra
     redis_url: str = "redis://localhost:6379/0"
