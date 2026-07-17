@@ -1,0 +1,4 @@
+# Dependencias apenas de teste/desenvolvimento (nao usadas em producao).
+-r requirements.txt
+pytest==8.*
+pytest-asyncio==0.24.*
