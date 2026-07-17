@@ -251,12 +251,25 @@ body{
 .tcol-sub .tname{color:var(--muted)}
 .tsublabel{font-size:9.5px;font-weight:700;letter-spacing:.4px;color:var(--dim);text-transform:uppercase}
 .tsub-wait{display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;letter-spacing:.3px;padding:12px 0}
-.tsub-box{align-items:center;justify-content:center;text-align:center}
-.tsub-box .tsec-h{margin-bottom:2px}
-.tsub-val{font-family:var(--display);font-weight:800;font-size:48px;line-height:1;margin:8px 0 12px}
-.tsub-meta{display:flex;flex-direction:column;align-items:center;gap:8px}
-.tsub-meta .tag{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:3px 11px;border-radius:6px;border:1px solid currentColor}
-.tsub-assets{font-size:11.5px;color:var(--muted)}
+/* Cyber Risk Subindexes: faixa superior (org index + superfície) + grade de velocímetros */
+.sub-org{display:grid;grid-template-columns:minmax(220px,1fr) 2.2fr;gap:14px;flex-shrink:0}
+.sub-org-idx,.sub-org-surf{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:12px 16px;position:relative;overflow:hidden}
+.sub-org-idx::after,.sub-org-surf::after{content:"";position:absolute;inset:0 0 auto 0;height:2px}
+.sub-org-idx::after{background:#FFB020}
+.sub-org-surf::after{background:var(--info)}
+.sub-org-h{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.sub-org-h span{color:var(--dim);font-weight:600;text-transform:none;font-size:9.5px;margin-left:6px;letter-spacing:.2px}
+.sub-org-row{display:flex;align-items:center;gap:18px}
+.sub-org-val{font-family:var(--display);font-weight:800;font-size:46px;line-height:1}
+.sub-org-side{display:flex;flex-direction:column;gap:8px}
+.sub-org-side .tag,.sub-meta .tag{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:3px 11px;border-radius:6px;border:1px solid currentColor;align-self:flex-start}
+.sub-org-assets{font-size:11.5px;color:var(--muted)}
+.sub-org-surf .tsurf{grid-template-columns:repeat(6,1fr)}
+.sub-gauges{flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
+.sub-gauges .tcol-sub{min-height:0}
+.sub-meta{display:flex;flex-direction:column;align-items:center;gap:5px;margin-top:2px}
+.sub-meta .sub-assets{font-size:10.5px;color:var(--muted)}
+.sub-msg{color:var(--dim);padding:24px;text-align:center;font-size:12px}
 .c-dim{color:var(--dim)}
 .tcol-sub .tsec.grow{display:flex;flex-direction:column}
 .tcol-sub .tsec.grow .tsub-wait{flex:1}
@@ -396,8 +409,11 @@ body{
   <!-- ===================== EXECUTIVO ===================== -->
   <section class="screen active" id="exec">
     <div class="dashpage active" id="dpage-0"><div class="dashcols" id="dashCols-0"></div></div>
-    <div class="dashpage" id="dpage-1"><div class="dashpagehead">Cyber Risk Subindexes</div><div class="dashcols" id="dashCols-1"></div></div>
-    <div class="dashpage" id="dpage-2"><div class="dashpagehead">Cyber Risk Subindexes</div><div class="dashcols" id="dashCols-2"></div></div>
+    <div class="dashpage" id="dpage-1">
+      <div class="dashpagehead">Cyber Risk Subindexes</div>
+      <div class="sub-org" id="subOrgBand"></div>
+      <div class="sub-gauges" id="subGauges"></div>
+    </div>
   </section>
 
   <!-- ===================== SOC OPERACIONAL ===================== -->
@@ -832,8 +848,9 @@ screens.forEach((s,i)=>{
 });
 let dashSub=0;
 function setDashPage(n){
-  n=Math.max(0,Math.min(2,n)); if(n===dashSub) return; dashSub=n;
-  document.querySelectorAll('#exec .dashpage').forEach((p,i)=>p.classList.toggle('active',i===n));
+  const pages=document.querySelectorAll('#exec .dashpage');
+  n=Math.max(0,Math.min(pages.length-1,n)); if(n===dashSub) return; dashSub=n;
+  pages.forEach((p,i)=>p.classList.toggle('active',i===n));
   Object.values(charts).forEach(c=>{try{c.resize()}catch(e){}});
 }
 function go(i){
@@ -849,8 +866,12 @@ function go(i){
 }
 function rotLoop(t){
   if(!paused){
-    const el=t-rotStart, dur=(screens[cur]==='exec'?60000:ROT);   // Dashboard = 3 sub-paginas x 20s
-    if(screens[cur]==='exec') setDashPage(Math.floor(el/20000));
+    const el=t-rotStart;
+    let dur=ROT;
+    if(screens[cur]==='exec'){                        // Dashboard = N sub-páginas x 20s
+      const np=document.querySelectorAll('#exec .dashpage').length||1;
+      dur=np*20000; setDashPage(Math.floor(el/20000));
+    }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
     if(el>=dur)go(cur+1);
   } else rotBar.style.width='100%';
@@ -1387,41 +1408,68 @@ function tenantColSkeleton(t){
     `</div>`;
 }
 const _SUB_LVL = {low:{t:'Baixo',c:'low'},medium:{t:'Médio',c:'med'},high:{t:'Alto',c:'high'},critical:{t:'Crítico',c:'crit'}};
-function subindexCard(g){
-  const lvl=String(g.riskLevel||'').toLowerCase(), L=_SUB_LVL[lvl]||{t:'—',c:'dim'};
-  const hasVal=(+g.assetCount>0)&&(g.riskIndex!=null);   // sem ativos -> subíndice '—' (como o console V1)
-  const v=hasVal?(Math.round(g.riskIndex*10)/10):null;
-  const nm=g.isRoot?(g.name==='Global'?'Organização':g.name):g.name;
-  return `<div class="tcol tcol-sub" style="--tcol-accent:${g.isRoot?'#FFB020':'#5A6B8C'}">`+
-    `<div class="tcol-head"><div class="tname">${_esc(nm)}</div><div class="tsublabel">${g.isRoot?'Organização':'Subíndice'}</div></div>`+
-    `<div class="tsec grow tsub-box">`+
-      `<div class="tsec-h">Cyber Risk Subindex <span>ASRM</span></div>`+
-      `<div class="tsub-val c-${hasVal?L.c:'dim'}">${v==null?'—':v}</div>`+
-      `<div class="tsub-meta"><span class="tag c-${L.c}">${L.t} risco</span>`+
-      `<span class="tsub-assets">${_sv(g.assetCount)} ativos</span></div>`+
-    `</div></div>`;
+// Faixa superior: Cyber Risk Index + Superfície de Ataque da organização (raiz dos asset groups).
+function renderOrgBand(org, s){
+  s = s || {};
+  const L=_SUB_LVL[String((org||{}).riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
+  const has=(+(org||{}).assetCount>0)&&(org.riskIndex!=null);
+  const v=has?(Math.round(org.riskIndex*10)/10):null;
+  return `<div class="sub-org-idx">`+
+      `<div class="sub-org-h">Cyber Risk Index <span>Organização · ASRM</span></div>`+
+      `<div class="sub-org-row"><div class="sub-org-val c-${has?L.c:'dim'}">${v==null?'—':v}</div>`+
+      `<div class="sub-org-side"><span class="tag c-${L.c}">${L.t} risco</span>`+
+      `<span class="sub-org-assets">${_sv((org||{}).assetCount)} ativos</span></div></div>`+
+    `</div>`+
+    `<div class="sub-org-surf">`+
+      `<div class="sub-org-h">Superfície de Ataque <span>organização</span></div>`+
+      `<div class="tsurf">`+
+        `<div><b class="c-high">${_sv(s.public_ip)}</b><span>IPs públicos</span></div>`+
+        `<div><b class="c-med">${_sv(s.ports)}</b><span>Portas</span></div>`+
+        `<div><b class="c-high">${_sv(s.insecure_hosts)}</b><span>Hosts inseg.</span></div>`+
+        `<div><b class="c-med">${_sv(s.weak_auth)}</b><span>Auth fraca</span></div>`+
+        `<div><b class="c-crit">${_sv(s.cloud_high)}</b><span>Cloud alto</span></div>`+
+        `<div><b>${_sv(s.cve_count)}</b><span>CVEs</span></div>`+
+      `</div>`+
+    `</div>`;
 }
-function _subindexMsg(txt){
+// Velocímetro de subíndice (mesmo estilo dos gauges Prodesp/Detran/Iamspe).
+function subGaugeSkeleton(g,i){
   return `<div class="tcol tcol-sub" style="--tcol-accent:#5A6B8C">`+
-    `<div class="tcol-head"><div class="tname">Subíndices</div></div>`+
-    `<div class="tsec grow tsub-box"><div class="tsub-wait">${_esc(txt)}</div></div></div>`;
+    `<div class="tcol-head"><div class="tname">${_esc(g.name)}</div><div class="tsublabel">Subíndice</div></div>`+
+    `<div class="tsec"><div class="tsec-h">Cyber Risk Subindex <span>ASRM</span></div>`+
+      `<div class="tgauge"><div class="echart" id="g_sub_${i}"></div></div>`+
+      `<div class="sub-meta" id="submeta_${i}"></div></div>`+
+    `</div>`;
 }
+let _subGaugeKeys='';
 async function loadSubindexes(){
-  const w1=document.getElementById('dashCols-1'), w2=document.getElementById('dashCols-2');
-  if(!w1||!w2) return;
-  let groups=null, status='unavailable';
+  const band=document.getElementById('subOrgBand'), wrap=document.getElementById('subGauges');
+  if(!band||!wrap) return;
+  let d=null, status='unavailable';
   try{
     const r=await fetch(API_BASE+'/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT),{cache:'no-store'});
-    const d=await r.json(); status=d.status;
-    if(status==='ok') groups=d.groups||[];
+    d=await r.json(); status=d.status;
   }catch(e){ status='unavailable'; }
-  if(!groups){
-    w1.innerHTML=_subindexMsg(status==='invalid'?'Tenant não configurado':'Dados indisponíveis'); w2.innerHTML=''; return;
+  if(!d || status!=='ok'){
+    band.innerHTML=`<div class="sub-msg">${status==='invalid'?'Tenant não configurado':'Dados indisponíveis'}</div>`;
+    wrap.innerHTML=''; _subGaugeKeys=''; return;
   }
-  const root=groups.filter(g=>g.isRoot), kids=groups.filter(g=>!g.isRoot);
-  const cards=[...root,...kids].map(subindexCard);
-  const half=Math.ceil(cards.length/2)||1;
-  w1.innerHTML=cards.slice(0,half).join(''); w2.innerHTML=cards.slice(half).join('');
+  const groups=d.groups||[];
+  const org=groups.find(g=>g.isRoot)||{}, kids=groups.filter(g=>!g.isRoot);
+  band.innerHTML=renderOrgBand(org, d.surface);
+  const keys=kids.map(g=>g.name).join('|');
+  if(keys!==_subGaugeKeys){                       // (re)constrói skeleton + registra echarts uma vez
+    wrap.innerHTML=kids.map(subGaugeSkeleton).join('');
+    kids.forEach((g,i)=>{ try{ reg('g_sub_'+i, tGaugeOpt()); }catch(e){} });
+    _subGaugeKeys=keys;
+  }
+  kids.forEach((g,i)=>{
+    const has=(+g.assetCount>0)&&(g.riskIndex!=null);   // sem ativos -> '—' (como o console V1)
+    _tGaugeSet('sub_'+i, has?parseFloat(g.riskIndex):null);
+    const meta=document.getElementById('submeta_'+i);
+    if(meta){ const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
+      meta.innerHTML=`<span class="tag c-${L.c}">${L.t} risco</span><span class="sub-assets">${_sv(g.assetCount)} ativos</span>`; }
+  });
 }
 function buildDashCols(){
   const w0=document.getElementById('dashCols-0');
