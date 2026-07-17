@@ -9,18 +9,22 @@ Endpoints:
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .cache import get_redis
+from . import db, cyber_registry, cyber_tokens
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = get_redis()  # conexão preguiçosa; não falha se o Redis estiver fora ainda
+    await db.init_pool()           # pool PostgreSQL (Cyber); falha-segura se o banco estiver fora
     yield
+    await db.close_pool()
     await app.state.redis.aclose()
 
 
@@ -37,11 +41,18 @@ app.add_middleware(
 
 @app.get("/healthz")
 async def healthz():
+    # Redis: comportamento atual PRESERVADO (mesmas chaves status/redis[/error]).
     try:
         pong = await app.state.redis.ping()
-        return {"status": "ok", "redis": bool(pong)}
+        result = {"status": "ok", "redis": bool(pong)}
     except Exception as exc:  # noqa: BLE001
-        return {"status": "degraded", "redis": False, "error": str(exc)}
+        result = {"status": "degraded", "redis": False, "error": str(exc)}
+    # PostgreSQL: aditivo e isolado — uma falha aqui NAO altera o status do Redis acima.
+    try:
+        result["postgres"] = await db.check_health()  # 'ok' | 'error' | 'unavailable'
+    except Exception:  # noqa: BLE001
+        result["postgres"] = "error"
+    return result
 
 
 @app.get("/api/{tenant}/overview")
@@ -92,6 +103,26 @@ async def ws(sock: WebSocket, tenant: str):
         await pubsub.unsubscribe(f"ws:{tenant}")
         await pubsub.aclose()
         await r.aclose()
+
+
+@app.get("/cyber/tenants")
+async def cyber_tenants():
+    """Cadastro Cyber (read-only) para uso futuro. Nao expoe token/DSN/variavel/headers.
+
+    - Banco indisponivel: status='unavailable', organizations=[] (nao derruba nada).
+    - Tenant habilitado sem token: permanece na lista com credentialsConfigured=false.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "organizations": [], "updatedAt": now_iso}
+    try:
+        organizations = await cyber_registry.fetch_cyber_registry(pool)
+    except Exception:  # noqa: BLE001 — nao vazar detalhes internos/DSN
+        return {"status": "unavailable", "organizations": [], "updatedAt": now_iso}
+    return cyber_registry.build_payload(
+        organizations, cyber_tokens.resolve_token, updated_at=now_iso
+    )
 
 
 # ---- Dashboard estático (mesma origem -> sem CORS) ----
