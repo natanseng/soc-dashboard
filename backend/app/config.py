@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     db_dsn: str = ""
 
+    # PostgreSQL pool (Fase Cyber — leitura do cadastro). Aditivo; NAO afeta a Fase 1.
+    db_pool_min: int = 1              # conexoes minimas do pool
+    db_pool_max: int = 5             # conexoes maximas do pool
+    db_pool_acquire_timeout: float = 10.0   # s p/ obter conexao do pool
+    db_connect_timeout: float = 5.0         # s p/ estabelecer o pool no startup
+    db_command_timeout: float = 10.0        # s por comando SQL
+    db_healthcheck_timeout: float = 2.0     # teto do probe de saude do PG (protege o /healthz)
+    # Override opcional tenant_id -> nome da variavel de token (JSON). Vazio = convencao.
+    cyber_token_env_map: str = ""
+
     # Attack Map (opcional)
     geoip_db: str = "data/GeoLite2-City.mmdb"
 
