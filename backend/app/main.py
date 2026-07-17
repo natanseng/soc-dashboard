@@ -10,13 +10,14 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .cache import get_redis
-from . import db, cyber_registry, cyber_tokens
+from . import db, cyber_registry, cyber_tokens, cyber_api
 
 
 @asynccontextmanager
@@ -123,6 +124,116 @@ async def cyber_tenants():
     return cyber_registry.build_payload(
         tenants, cyber_tokens.resolve_token, updated_at=now_iso
     )
+
+
+@app.get("/cyber/summary")
+async def cyber_summary(tenantId: Optional[str] = None, organizationId: Optional[str] = None,
+                        severity: Optional[str] = None, enforcementStatus: Optional[str] = None,
+                        attributionStatus: Optional[str] = None, hours: Optional[int] = None):
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable"}
+    if not await cyber_api.validate_org_in_tenant(pool, tenantId, organizationId):
+        return {"status": "invalid", "error": "organization does not belong to tenant"}
+    try:
+        return await cyber_api.summary(pool, tenant_id=tenantId, organization_id=organizationId, severity=severity,
+                                       enforcement_status=enforcementStatus, attribution_status=attributionStatus, hours=hours)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable"}
+
+
+@app.get("/cyber/by-tenant")
+async def cyber_by_tenant():
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "tenants": []}
+    try:
+        return await cyber_api.by_tenant(pool)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "tenants": []}
+
+
+@app.get("/cyber/by-organization")
+async def cyber_by_organization(tenantId: Optional[str] = None, organizationId: Optional[str] = None,
+                                severity: Optional[str] = None, enforcementStatus: Optional[str] = None,
+                                hours: Optional[int] = None):
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "organizations": []}
+    if not await cyber_api.validate_org_in_tenant(pool, tenantId, organizationId):
+        return {"status": "invalid", "error": "organization does not belong to tenant"}
+    try:
+        return await cyber_api.by_organization(pool, tenant_id=tenantId, organization_id=organizationId,
+                                               severity=severity, enforcement_status=enforcementStatus, hours=hours)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "organizations": []}
+
+
+@app.get("/cyber/organizations")
+async def cyber_organizations():
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "tenants": []}
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        tenants = await cyber_registry.fetch_cyber_registry(pool)
+        return cyber_registry.build_payload(tenants, cyber_tokens.resolve_token, updated_at=now_iso)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "tenants": []}
+
+
+@app.get("/cyber/map")
+async def cyber_map(tenantId: Optional[str] = None, organizationId: Optional[str] = None,
+                    severity: Optional[str] = None, layer: Optional[str] = None, hours: Optional[int] = None):
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "clusters": []}
+    if not await cyber_api.validate_org_in_tenant(pool, tenantId, organizationId):
+        return {"status": "invalid", "error": "organization does not belong to tenant"}
+    try:
+        return await cyber_api.map_points(pool, layer=layer, tenant_id=tenantId, organization_id=organizationId,
+                                          severity=severity, hours=hours)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "clusters": []}
+
+
+@app.get("/cyber/events")
+async def cyber_events(tenantId: Optional[str] = None, organizationId: Optional[str] = None,
+                       severity: Optional[str] = None, enforcementStatus: Optional[str] = None,
+                       attributionStatus: Optional[str] = None, hours: Optional[int] = None, limit: int = 100):
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "events": []}
+    if not await cyber_api.validate_org_in_tenant(pool, tenantId, organizationId):
+        return {"status": "invalid", "error": "organization does not belong to tenant"}
+    try:
+        return await cyber_api.events(pool, limit=min(max(limit, 1), 1000), tenant_id=tenantId,
+                                      organization_id=organizationId, severity=severity,
+                                      enforcement_status=enforcementStatus, attribution_status=attributionStatus, hours=hours)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "events": []}
+
+
+@app.get("/cyber/coverage")
+async def cyber_coverage():
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable"}
+    try:
+        return await cyber_api.coverage(pool)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable"}
+
+
+@app.get("/cyber/status")
+async def cyber_status():
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable", "collectors": []}
+    try:
+        return await cyber_api.status(pool)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "collectors": []}
 
 
 # ---- Dashboard estático (mesma origem -> sem CORS) ----
