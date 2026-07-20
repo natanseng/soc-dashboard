@@ -82,9 +82,35 @@ def _identifiers(alert: dict) -> dict:
     return ids
 
 
+def _collector_ids(alert: dict) -> list:
+    """collectorId(s) de origem do OAT (indicators[].field='collectorId')."""
+    out = []
+    for ind in (alert.get("indicators") or []):
+        if ind.get("field") == "collectorId":
+            v = ind.get("value")
+            if isinstance(v, str) and v and v not in out:
+                out.append(v)
+    return out
+
+
+def _resolve_subindex(alert, collector_map, default_subindex):
+    """Subindice do workbench via COLETOR de origem do OAT. Sem coletor mapeado -> default do
+    tenant (deteccoes nativas). Retorna (subindex, method: collector|default|none)."""
+    subs = []
+    for cid in _collector_ids(alert):
+        s = collector_map.get(cid)
+        if s and s not in subs:
+            subs.append(s)
+    if subs:
+        return subs[0], "collector"     # coletores atuais -> mesmo subindice; 1o match
+    if default_subindex:
+        return default_subindex, "default"
+    return None, "none"
+
+
 def build_alert_row(alert: dict, ctx) -> Optional[dict]:
     """Puro: alerta cru -> linha de cyber_workbench_alert (ou None se sem id/created)."""
-    mode, enabled_orgs, mappings = ctx
+    mode, enabled_orgs, mappings, collector_map, default_subindex = ctx
     alert_id = alert.get("id")
     created = _parse_dt(alert.get("createdDateTime"))
     if not alert_id or not created:
@@ -102,8 +128,10 @@ def build_alert_row(alert: dict, ctx) -> Optional[dict]:
         return [(o, c) for (o, c, _m) in mappings.get((mt, vh), [])]
 
     attr = resolve_organization(mode, enabled_orgs, ids, lookup)
+    subindex, subindex_method = _resolve_subindex(alert, collector_map, default_subindex)
     return {
         "alert_id": alert_id,
+        "subindex": subindex, "subindex_method": subindex_method,
         "severity": alert.get("severity"),
         "status": status,
         "investigation_status": alert.get("investigationStatus"),
@@ -131,12 +159,17 @@ def build_alert_row(alert: dict, ctx) -> Optional[dict]:
 
 
 async def _load_context(conn, tenant_id):
-    mrow = await conn.fetchrow("SELECT attribution_mode FROM cyber_tenant_config WHERE tenant_id=$1", tenant_id)
+    mrow = await conn.fetchrow(
+        "SELECT attribution_mode, default_subindex FROM cyber_tenant_config WHERE tenant_id=$1", tenant_id)
     mode = mrow["attribution_mode"] if mrow else "mapping"
+    default_subindex = mrow["default_subindex"] if mrow else None
     orows = await conn.fetch(
         "SELECT organization_id FROM organization WHERE tenant_id=$1 AND enabled AND cyber_enabled", tenant_id)
     mappings = await load_mappings(conn, tenant_id)
-    return mode, [r["organization_id"] for r in orows], mappings
+    crows = await conn.fetch(
+        "SELECT collector_id, subindex FROM cyber_subindex_collector WHERE tenant_id=$1", tenant_id)
+    collector_map = {r["collector_id"]: r["subindex"] for r in crows}
+    return mode, [r["organization_id"] for r in orows], mappings, collector_map, default_subindex
 
 
 _UPSERT = (
@@ -146,8 +179,8 @@ _UPSERT = (
     " matched_first, matched_last, oat_count, detect_seconds, resolve_seconds,"
     " organization_id, organization_attribution_status, organization_attribution_method,"
     " organization_attribution_confidence, organization_attribution_evidence, attribution_identifiers,"
-    " workbench_link, first_collected_at, last_collected_at)"
-    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25,now(),now())"
+    " workbench_link, subindex, subindex_method, first_collected_at, last_collected_at)"
+    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25,$26,$27,now(),now())"
     " ON CONFLICT (tenant_id, alert_id) DO UPDATE SET"
     " severity=EXCLUDED.severity, status=EXCLUDED.status, investigation_status=EXCLUDED.investigation_status,"
     " investigation_result=EXCLUDED.investigation_result, model=EXCLUDED.model, model_id=EXCLUDED.model_id,"
@@ -159,6 +192,7 @@ _UPSERT = (
     " organization_attribution_confidence=EXCLUDED.organization_attribution_confidence,"
     " organization_attribution_evidence=EXCLUDED.organization_attribution_evidence,"
     " attribution_identifiers=EXCLUDED.attribution_identifiers, workbench_link=EXCLUDED.workbench_link,"
+    " subindex=EXCLUDED.subindex, subindex_method=EXCLUDED.subindex_method,"
     " last_collected_at=now()"
     " RETURNING (xmax = 0) AS inserted"   # xmax=0 => linha nova (INSERT); senao foi UPDATE
 )
@@ -171,7 +205,7 @@ async def _persist(conn, tenant_id, r) -> str:
         r["score"], r["created_at"], r["updated_at_v1"], r["matched_first"], r["matched_last"],
         r["oat_count"], r["detect_seconds"], r["resolve_seconds"], r["organization_id"],
         r["attr_status"], r["attr_method"], r["attr_confidence"], r["attr_evidence"],
-        r["attribution_identifiers"], r["workbench_link"])
+        r["attribution_identifiers"], r["workbench_link"], r["subindex"], r["subindex_method"])
     return "inserted" if inserted else "updated"
 
 

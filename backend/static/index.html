@@ -1599,7 +1599,7 @@ function _alCard(o){
       `<div><span>MTTR</span><b>${_humanize(o.mttr)}</b></div></div>`+
   `</div>`;
 }
-function renderAlUnits(byTenant, groups){
+function renderAlUnits(byTenant, groups, subs){
   const el=document.getElementById('alUnits'); if(!el) return;
   if(!byTenant||byTenant.status!=='ok'){ el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
   _alTenantNames={}; (byTenant.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
@@ -1609,16 +1609,15 @@ function renderAlUnits(byTenant, groups){
     cards.push(_alCard({name:t.tenantName, sublabel:'console', accent:_AL_ACCENT[t.tenantId]||'#5A6B8C',
       sevActive:t.severityActive, open:t.open, inProgress:t.inProgress, active:t.active, total30d:t.total30d,
       mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
-  // subindices do SGGD (dinamico dos asset groups). Workbench por subindice = 0 ate haver mapeamento por instancia.
-  const kids=(groups&&groups.status==='ok')?(groups.groups||[]).filter(g=>!g.isRoot):[];
-  kids.forEach(g=>cards.push(_alCard({name:g.name, sublabel:'subíndice', accent:'#FFB020',
-    sevActive:{}, open:0, inProgress:0, active:0, total30d:0, mttd:null, mttr:null})));
-  // SGGD: workbenches da console ainda sem subindice (nao atribuidos por instancia) — nao perder as contagens
-  const sg=(byTenant.tenants||[]).find(t=>t.tenantId===SUBINDEX_TENANT);
-  if(sg && (sg.total30d || sg.active)){ const m=sg.mtt||{};
-    cards.push(_alCard({name:(sg.tenantName||'SGGD')+' · não atrib.', sublabel:'sem subíndice', accent:'#5A6B8C',
-      sevActive:sg.severityActive, open:sg.open, inProgress:sg.inProgress, active:sg.active,
-      total30d:sg.total30d, mttd:m.mttdSeconds, mttr:m.mttrSeconds})); }
+  // subindices do SGGD: workbench correlacionado por coletor (coluna subindex). Uniao da LISTA de
+  // subindices (asset groups) + subindices que tem workbench (nao perde nada). 0 quando sem workbench.
+  const subMap=(subs&&subs.status==='ok')?(subs.subindexes||{}):{};
+  const kids=(groups&&groups.status==='ok')?(groups.groups||[]).filter(g=>!g.isRoot).map(g=>g.name):[];
+  const names=[...new Set([...kids, ...Object.keys(subMap)])];
+  names.forEach(nm=>{ const s=subMap[nm]||{}, m=s.mtt||{};
+    cards.push(_alCard({name:nm, sublabel:'subíndice', accent:'#FFB020',
+      sevActive:s.severityActive||{}, open:s.open||0, inProgress:s.inProgress||0, active:s.active||0,
+      total30d:s.total30d||0, mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
   el.innerHTML=cards.join('');
 }
 function renderAlHist(d){
@@ -1644,10 +1643,11 @@ async function loadAlertas(){
   if(_alBusy) return; _alBusy=true;
   const _g=(p)=>fetch(API_BASE+p,{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
   try{
-    const [sum,ten,groups,hist]=await Promise.all([
+    const [sum,ten,groups,subs,hist]=await Promise.all([
       _g('/alerts/summary'),_g('/alerts/by-tenant'),
-      _g('/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),_g('/alerts/history?days=30')]);
-    renderAlBand(sum); renderAlUnits(ten, groups); renderAlHist(hist);
+      _g('/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),
+      _g('/alerts/by-subindex?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),_g('/alerts/history?days=30')]);
+    renderAlBand(sum); renderAlUnits(ten, groups, subs); renderAlHist(hist);
   }catch(e){ /* silencioso; painéis mostram indisponível */ }
   finally{ _alBusy=false; }
 }

@@ -166,6 +166,11 @@ async def alerts_by_organization(tenantId: Optional[str] = None):
     return await _alerts_call(cyber_alerts_api.by_organization, tenant_id=tenantId)
 
 
+@app.get("/alerts/by-subindex")
+async def alerts_by_subindex(tenantId: str):
+    return await _alerts_call(cyber_alerts_api.by_subindex, tenant_id=tenantId)
+
+
 @app.get("/alerts/history")
 async def alerts_history(days: int = 30):
     return await _alerts_call(cyber_alerts_api.history, days=days)

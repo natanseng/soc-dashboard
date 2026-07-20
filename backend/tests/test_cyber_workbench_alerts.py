@@ -61,9 +61,10 @@ def test_matched_times_from_filters_and_events():
 
 # ---------- build_alert_row (atribuicao single_org + campos) ----------
 def test_build_alert_row_single_org():
-    ctx = ("single_org", ["org-x"], {})
+    ctx = ("single_org", ["org-x"], {}, {"col-1": "SGGD"}, "SGGD")
     alert = _alert(severity="high", status="Closed", modelType="custom", investigationStatus="True Positive",
                    updatedDateTime="2026-07-20T00:31:40Z",
+                   indicators=[{"type": "text", "field": "collectorId", "value": "col-1"}],
                    matchedRules=[{"matchedFilters": [{"matchedDateTime": "2026-07-20T00:00:40Z"},
                                                       {"matchedDateTime": "2026-07-20T00:01:10Z"}]}])
     r = wa.build_alert_row(alert, ctx)
@@ -72,8 +73,18 @@ def test_build_alert_row_single_org():
     assert r["detect_seconds"] == 30.0            # custom -> ultimo OAT (00:01:10 -> 30s)
     assert r["resolve_seconds"] == 1800.0         # Closed -> 30min
     assert r["attr_status"] == "attributed" and r["organization_id"] == "org-x"
+    assert r["subindex"] == "SGGD" and r["subindex_method"] == "collector"
 
 
 def test_build_alert_row_missing_fields():
-    assert wa.build_alert_row({"id": None, "createdDateTime": "2026-07-20T00:00:00Z"}, ("single_org", ["o"], {})) is None
-    assert wa.build_alert_row({"id": "WB-2", "createdDateTime": None}, ("single_org", ["o"], {})) is None
+    ctx = ("single_org", ["o"], {}, {}, None)
+    assert wa.build_alert_row({"id": None, "createdDateTime": "2026-07-20T00:00:00Z"}, ctx) is None
+    assert wa.build_alert_row({"id": "WB-2", "createdDateTime": None}, ctx) is None
+
+
+def test_resolve_subindex_collector_and_default():
+    cmap = {"c1": "SGGD"}
+    assert wa._resolve_subindex(_alert(indicators=[{"field": "collectorId", "value": "c1"}]), cmap, "SGGD") == ("SGGD", "collector")
+    assert wa._resolve_subindex(_alert(indicators=[]), cmap, "SGGD") == ("SGGD", "default")          # nativo -> default
+    assert wa._resolve_subindex(_alert(indicators=[]), cmap, None) == (None, "none")                  # sem default
+    assert wa._resolve_subindex(_alert(indicators=[{"field": "collectorId", "value": "x"}]), cmap, "SGGD") == ("SGGD", "default")  # coletor nao mapeado -> default

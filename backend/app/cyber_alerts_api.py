@@ -136,6 +136,31 @@ async def by_organization(pool, tenant_id=None) -> dict:
                            for r in unassigned]}
 
 
+async def by_subindex(pool, tenant_id) -> dict:
+    """Metricas de workbench por subindice (coluna subindex, correlacao via coletor). Janela 30d."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT subindex, "
+            f"count(*) FILTER (WHERE status='Open') AS open, "
+            f"count(*) FILTER (WHERE status='In Progress') AS in_progress, "
+            f"count(*) FILTER (WHERE {ACTIVE}) AS active, "
+            f"count(*) FILTER (WHERE {WIN30}) AS total_30d, "
+            f"avg(detect_seconds) FILTER (WHERE {WIN30}) AS mttd_sec, count(detect_seconds) FILTER (WHERE {WIN30}) AS mttd_n, "
+            f"avg(resolve_seconds) FILTER (WHERE {WIN30}) AS mttr_sec, count(resolve_seconds) FILTER (WHERE {WIN30}) AS mttr_n "
+            f"FROM cyber_workbench_alert WHERE tenant_id=$1 AND subindex IS NOT NULL GROUP BY subindex", tenant_id)
+        sev = await conn.fetch(
+            f"SELECT subindex, severity, count(*) n FROM cyber_workbench_alert "
+            f"WHERE tenant_id=$1 AND subindex IS NOT NULL AND {ACTIVE} GROUP BY subindex, severity", tenant_id)
+    sev_by: dict = {}
+    for r in sev:
+        sev_by.setdefault(r["subindex"], {})[r["severity"] or "unknown"] = int(r["n"])
+    return {"status": "ok", "tenantId": tenant_id,
+            "subindexes": {r["subindex"]: {
+                "open": int(r["open"]), "inProgress": int(r["in_progress"]), "active": int(r["active"]),
+                "total30d": int(r["total_30d"]), "severityActive": sev_by.get(r["subindex"], {}),
+                "mtt": _mtt(r)} for r in rows}}
+
+
 async def history(pool, days: int = 30) -> dict:
     """Serie temporal por dia (created_at) por tenant + consolidado, ultimos N dias."""
     async with pool.acquire() as conn:
