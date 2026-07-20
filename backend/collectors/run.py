@@ -86,6 +86,10 @@ async def tick_t1(v1: VisionOneClient):
                  flat["adoption"].get("agents"))
     except Exception as exc:  # noqa: BLE001
         log.warning("T1 posture (ASRM/CREM) indisponível: %s", _diag(exc))
+        try:  # keep-last-good: renova o TTL do último valor bom p/ não zerar o painel numa falha transitória
+            await r.expire(f"v1:{TENANT}:posture", 1800)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def tick_t2(v1: VisionOneClient):
@@ -249,6 +253,10 @@ async def tick_dashboard(tenant: str, v1: VisionOneClient):
                  flat["config"], flat["cve_count"])
     except Exception as exc:  # noqa: BLE001
         log.warning("DASH[%s] posture (ASRM/CREM) indisponivel: %s", tenant, _diag(exc))
+        try:  # keep-last-good: renova o TTL do último valor bom (nao zera o painel do tenant)
+            await r.expire(f"v1:{tenant}:posture", 1800)
+        except Exception:  # noqa: BLE001
+            pass
 
     try:
         ev = await tiers.event_tallies(v1)
@@ -268,15 +276,32 @@ async def main():
     v1 = VisionOneClient(settings.v1_api_token, settings.v1_api_base)
     sched = AsyncIOScheduler()
     now = datetime.now()
+
+    def _to(interval):
+        return max(20, int(interval * 0.85))   # timeout do tick < intervalo (evita overlap e hang permanente)
+
+    def _guarded(fn, name, timeout):
+        """Envolve um tick com timeout. Um tick travado é cancelado e NÃO bloqueia os próximos —
+        com max_instances=1 do APScheduler, um await pendurado paralisaria o tier inteiro
+        (foi o que zerou o painel do tenant primário: tick_t1 travou e workbench+posture pararam)."""
+        async def _job(*args):
+            try:
+                await asyncio.wait_for(fn(*args), timeout)
+            except asyncio.TimeoutError:
+                log.warning("%s excedeu %ss e foi cancelado; o próximo tick seguirá normalmente", name, timeout)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("%s erro não tratado: %s", name, exc)
+        return _job
+
     # Execução imediata escalonada na subida (não espera o 1º intervalo de cada tier)
-    sched.add_job(tick_t1, "interval", seconds=settings.tier1_interval,
-                  args=[v1], next_run_time=now)
-    sched.add_job(tick_t2, "interval", seconds=settings.tier2_interval,
-                  args=[v1], next_run_time=now + timedelta(seconds=8))
-    sched.add_job(tick_t3, "interval", seconds=settings.tier3_interval,
-                                    args=[v1], next_run_time=now + timedelta(seconds=16))
-    sched.add_job(tick_t4, "interval", seconds=settings.tier4_interval,
-                  args=[v1], next_run_time=now + timedelta(seconds=24))
+    sched.add_job(_guarded(tick_t1, "T1", _to(settings.tier1_interval)), "interval",
+                  seconds=settings.tier1_interval, args=[v1], next_run_time=now)
+    sched.add_job(_guarded(tick_t2, "T2", _to(settings.tier2_interval)), "interval",
+                  seconds=settings.tier2_interval, args=[v1], next_run_time=now + timedelta(seconds=8))
+    sched.add_job(_guarded(tick_t3, "T3", _to(settings.tier3_interval)), "interval",
+                  seconds=settings.tier3_interval, args=[v1], next_run_time=now + timedelta(seconds=16))
+    sched.add_job(_guarded(tick_t4, "T4", _to(settings.tier4_interval)), "interval",
+                  seconds=settings.tier4_interval, args=[v1], next_run_time=now + timedelta(seconds=24))
     # --- Dashboard multi-tenant: tenants secundarios (so posture+workbench+eventos) ---
     dash_clients = []
     _secondary = [("detran-sp", settings.v1_api_token_detran),
@@ -287,8 +312,8 @@ async def main():
             continue
         _c = VisionOneClient(_tok, settings.v1_api_base)
         dash_clients.append(_c)
-        sched.add_job(tick_dashboard, "interval", seconds=settings.tier1_interval,
-                      args=[_tid, _c], next_run_time=now + timedelta(seconds=4 + _i * 2))
+        sched.add_job(_guarded(tick_dashboard, f"DASH[{_tid}]", _to(settings.tier1_interval)), "interval",
+                      seconds=settings.tier1_interval, args=[_tid, _c], next_run_time=now + timedelta(seconds=4 + _i * 2))
     sched.start()
     log.info("Coletor iniciado | primario=%s | dashboard=%s | T1=%ss T2=%ss T3=%ss",
              TENANT, [t for t, _ in _secondary], settings.tier1_interval,
