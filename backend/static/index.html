@@ -273,7 +273,17 @@ body{
 .c-dim{color:var(--dim)}
 /* ===== Tela Alertas ===== */
 #alertas.screen{display:flex;flex-direction:column;gap:14px}
-.al-band{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex-shrink:0}
+.al-band{display:grid;grid-template-columns:minmax(230px,0.85fr) 2.5fr;gap:12px;flex-shrink:0}
+.al-band-tot,.al-band-sev{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 16px;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+.al-band-tot::after,.al-band-sev::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--brand)}
+.al-band-tot .h,.al-band-sev .h{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.al-band-tot .h i,.al-band-sev .h i{color:var(--dim);font-weight:600;font-style:normal;font-size:9px;margin-left:5px}
+.al-band-totrow{display:flex;align-items:baseline;gap:18px}
+.al-band-totrow .big{font-family:var(--display);font-weight:800;font-size:34px;line-height:1}
+.al-sevrow{display:flex;gap:26px;flex-wrap:wrap;align-items:center}
+.al-sevchip{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);text-transform:capitalize}
+.al-sevchip i{width:11px;height:11px;border-radius:3px;display:inline-block}
+.al-sevchip b{font-family:var(--mono);font-size:17px;font-weight:700}
 .al-card{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 14px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;min-height:0}
 .al-card::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--brand)}
 .al-card .h{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
@@ -285,7 +295,8 @@ body{
 .al-kv span{color:var(--muted);flex:1}
 .al-kv b{font-family:var(--mono);font-weight:700}
 .al-seg{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;font-size:9.5px;color:var(--dim)}
-.al-tenants{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex-shrink:0}
+.al-units{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;flex-shrink:0;align-content:start}
+@media(max-width:1400px){ .al-units{grid-template-columns:repeat(3,1fr)} }
 .al-tcard{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;min-height:0}
 .al-tcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
 .al-tcard .tname{font-size:17px}
@@ -302,8 +313,7 @@ body{
 .al-mtt>div{flex:1;background:rgba(255,255,255,.03);border-radius:7px;padding:5px 9px}
 .al-mtt span{color:var(--muted);font-size:10px}
 .al-mtt b{font-family:var(--mono);font-size:14px;font-weight:700;display:block}
-.al-bottom{flex:1;min-height:0;display:flex;gap:14px}
-.al-bottom .panel{min-height:0}
+.al-histpanel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bg-crit{background:var(--crit)}.bg-high{background:var(--high)}.bg-med{background:var(--med)}.bg-low{background:var(--low)}.bg-info{background:var(--info)}
 .tcol-sub .tsec.grow{display:flex;flex-direction:column}
 .tcol-sub .tsec.grow .tsub-wait{flex:1}
@@ -453,16 +463,10 @@ body{
   <!-- ===================== ALERTAS (workbenches consolidados) ===================== -->
   <section class="screen" id="alertas">
     <div class="al-band" id="alBand"><div class="rmsg">Carregando…</div></div>
-    <div class="al-tenants" id="alTenants"></div>
-    <div class="al-bottom">
-      <div class="panel" style="flex:1.5">
-        <div class="phead"><span class="ico"></span><h3>Workbenches · últimos 30 dias</h3><span class="sub">por dia de criação</span><span class="livetag" id="alHistLive" style="display:none">● AO VIVO</span></div>
-        <div style="flex:1;min-height:0"><div class="echart" id="alHist"></div></div>
-      </div>
-      <div class="panel" style="flex:1">
-        <div class="phead"><span class="ico"></span><h3>Correlação por Subíndice</h3><span class="sub">SGGD · por instância/subórgão</span></div>
-        <div class="list" id="alSubindex"></div>
-      </div>
+    <div class="al-units" id="alUnits"></div>
+    <div class="panel al-histpanel">
+      <div class="phead"><span class="ico"></span><h3>Workbenches · últimos 30 dias</h3><span class="sub">por dia de criação · todas as consoles</span><span class="livetag" id="alHistLive" style="display:none">● AO VIVO</span></div>
+      <div style="flex:1;min-height:0"><div class="echart" id="alHist"></div></div>
     </div>
   </section>
 
@@ -1570,59 +1574,52 @@ function renderAlBand(sum){
   const el=document.getElementById('alBand'); if(!el) return;
   if(!sum||sum.status!=='ok'){ el.innerHTML='<div class="rmsg">Dados indisponíveis</div>'; return; }
   const st=sum.byStatus||{};
+  const sev=sum.severity30d||{};
+  const chips=_sevOrdered(sev).map(k=>{const c=_SEVCLS[k]||'low';
+    return `<span class="al-sevchip"><i class="bg-${c}"></i>${_esc(k)} <b class="c-${c}">${_alNum(sev[k]||0)}</b></span>`;}).join('')
+    || '<span style="color:var(--dim);font-size:12px">Sem dados</span>';
   el.innerHTML=
-    `<div class="al-card"><div class="h">Workbenches · 30 dias</div><div class="big">${_alNum(sum.total30d)}</div>`+
-      `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
-      `<span>Fechados <b>${_alNum(st['Closed']||0)}</b></span></div></div>`+
-    `<div class="al-card"><div class="h">Por severidade <i>30 dias</i></div>${_sevBars(sum.severity30d)}</div>`+
-    `<div class="al-card"><div class="h">Por status</div>${_statusRows(st)}</div>`+
-    `<div class="al-card"><div class="h">MTTD / MTTR <i>média</i></div>${_mttBlock(sum.mtt||{},sum.mttBySegment||{})}</div>`;
+    `<div class="al-band-tot"><div class="h">Workbenches <i>· 30 dias · todas as consoles</i></div>`+
+      `<div class="al-band-totrow"><div class="big">${_alNum(sum.total30d)}</div>`+
+        `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
+        `<span>Fechados <b>${_alNum(st['Closed']||0)}</b></span></div></div></div>`+
+    `<div class="al-band-sev"><div class="h">Por severidade <i>· 30 dias</i></div>`+
+      `<div class="al-sevrow">${chips}</div></div>`;
 }
-function renderAlTenants(t0){
-  const el=document.getElementById('alTenants'); if(!el) return;
-  if(!t0||t0.status!=='ok'){ el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
-  _alTenantNames={}; (t0.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
-  el.innerHTML=(t0.tenants||[]).map(t=>{ const m=t.mtt||{};
-    return `<div class="al-tcard" style="--tcol-accent:${_AL_ACCENT[t.tenantId]||'#5A6B8C'}">`+
-      `<div class="tcol-head"><div class="tname">${_esc(t.tenantName)}</div>`+
-        `<div class="tsublabel">${t.lastUpdate?_agoTime(t.lastUpdate):'—'}</div></div>`+
-      `<div class="al-sevmini">${_sevBars(t.severityActive)}</div>`+
-      `<div class="al-statrow">`+
-        `<div class="al-stat"><b class="c-high">${_alNum(t.open)}</b><span>Abertos</span></div>`+
-        `<div class="al-stat"><b class="c-med">${_alNum(t.inProgress)}</b><span>Em and.</span></div>`+
-        `<div class="al-stat"><b>${_alNum(t.active)}</b><span>Ativos</span></div>`+
-        `<div class="al-stat"><b>${_alNum(t.total30d)}</b><span>30 dias</span></div></div>`+
-      `<div class="al-mtt"><div><span>MTTD</span><b>${_humanize(m.mttdSeconds)}</b></div>`+
-        `<div><span>MTTR</span><b>${_humanize(m.mttrSeconds)}</b></div></div>`+
-    `</div>`; }).join('');
+function _alCard(o){
+  return `<div class="al-tcard" style="--tcol-accent:${o.accent||'#5A6B8C'}">`+
+    `<div class="tcol-head"><div class="tname">${_esc(o.name)}</div><div class="tsublabel">${_esc(o.sublabel||'')}</div></div>`+
+    `<div class="al-sevmini">${_sevBars(o.sevActive||{})}</div>`+
+    `<div class="al-statrow">`+
+      `<div class="al-stat"><b class="c-high">${_alNum(o.open)}</b><span>Abertos</span></div>`+
+      `<div class="al-stat"><b class="c-med">${_alNum(o.inProgress)}</b><span>Em and.</span></div>`+
+      `<div class="al-stat"><b>${_alNum(o.active)}</b><span>Ativos</span></div>`+
+      `<div class="al-stat"><b>${_alNum(o.total30d)}</b><span>30 dias</span></div></div>`+
+    `<div class="al-mtt"><div><span>MTTD</span><b>${_humanize(o.mttd)}</b></div>`+
+      `<div><span>MTTR</span><b>${_humanize(o.mttr)}</b></div></div>`+
+  `</div>`;
 }
-function _alTenHeader(name){
-  return `<div class="li" style="opacity:.85;background:rgba(255,255,255,.03)"><span class="nm" style="font-weight:700;letter-spacing:.3px">${_esc(name)}</span></div>`;
-}
-function _alUnRow(u){
-  if(!u||!u.total) return '';
-  return `<div class="li" style="opacity:.72"><span class="nm" style="font-style:italic">↳ Não atribuídos <small>sem mapeamento de instância</small></span>`+
-    `<span class="sc">${_alNum(u.active)} ativos · ${_alNum(u.total30d)} em 30d</span></div>`;
-}
-function renderAlSubindex(org){
-  const el=document.getElementById('alSubindex'); if(!el) return;
-  if(!org||org.status!=='ok'){ el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; return; }
-  const un={}; (org.unassigned||[]).forEach(u=>un[u.tenantId]=u);
-  const seen=new Set();
-  let html='', curT=null;
-  (org.organizations||[]).forEach(o=>{
-    if(o.tenantId!==curT){ if(curT!==null) html+=_alUnRow(un[curT]);
-      curT=o.tenantId; seen.add(curT);
-      html+=_alTenHeader(o.tenantName); }
-    const m=o.mtt||{};
-    html+=`<div class="li"><span class="nm">${_esc(o.organizationName)}<small>${_alNum(o.active)} ativos · ${_alNum(o.total30d)} em 30d</small></span>`+
-      `<span class="sc">MTTD ${_humanize(m.mttdSeconds)} · MTTR ${_humanize(m.mttrSeconds)}</span></div>`;
-  });
-  if(curT!==null) html+=_alUnRow(un[curT]);
-  // tenants presentes SO em nao-atribuidos (sem orgao habilitado) — nao perder as contagens
-  Object.keys(un).forEach(tid=>{ if(!seen.has(tid) && un[tid] && un[tid].total){
-    html+=_alTenHeader(_prettyTenant(tid))+_alUnRow(un[tid]); }});
-  el.innerHTML=html||'<div class="li"><span class="nm" style="color:var(--muted)">Sem órgãos habilitados</span></div>';
+function renderAlUnits(byTenant, groups){
+  const el=document.getElementById('alUnits'); if(!el) return;
+  if(!byTenant||byTenant.status!=='ok'){ el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
+  _alTenantNames={}; (byTenant.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
+  const cards=[];
+  // consoles single-org (tudo exceto o tenant de subindices)
+  (byTenant.tenants||[]).forEach(t=>{ if(t.tenantId===SUBINDEX_TENANT) return; const m=t.mtt||{};
+    cards.push(_alCard({name:t.tenantName, sublabel:'console', accent:_AL_ACCENT[t.tenantId]||'#5A6B8C',
+      sevActive:t.severityActive, open:t.open, inProgress:t.inProgress, active:t.active, total30d:t.total30d,
+      mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
+  // subindices do SGGD (dinamico dos asset groups). Workbench por subindice = 0 ate haver mapeamento por instancia.
+  const kids=(groups&&groups.status==='ok')?(groups.groups||[]).filter(g=>!g.isRoot):[];
+  kids.forEach(g=>cards.push(_alCard({name:g.name, sublabel:'subíndice', accent:'#FFB020',
+    sevActive:{}, open:0, inProgress:0, active:0, total30d:0, mttd:null, mttr:null})));
+  // SGGD: workbenches da console ainda sem subindice (nao atribuidos por instancia) — nao perder as contagens
+  const sg=(byTenant.tenants||[]).find(t=>t.tenantId===SUBINDEX_TENANT);
+  if(sg && (sg.total30d || sg.active)){ const m=sg.mtt||{};
+    cards.push(_alCard({name:(sg.tenantName||'SGGD')+' · não atrib.', sublabel:'sem subíndice', accent:'#5A6B8C',
+      sevActive:sg.severityActive, open:sg.open, inProgress:sg.inProgress, active:sg.active,
+      total30d:sg.total30d, mttd:m.mttdSeconds, mttr:m.mttrSeconds})); }
+  el.innerHTML=cards.join('');
 }
 function renderAlHist(d){
   const el=document.getElementById('alHist'); if(!el) return;
@@ -1647,9 +1644,10 @@ async function loadAlertas(){
   if(_alBusy) return; _alBusy=true;
   const _g=(p)=>fetch(API_BASE+p,{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
   try{
-    const [sum,ten,org,hist]=await Promise.all([
-      _g('/alerts/summary'),_g('/alerts/by-tenant'),_g('/alerts/by-organization'),_g('/alerts/history?days=30')]);
-    renderAlBand(sum); renderAlTenants(ten); renderAlSubindex(org); renderAlHist(hist);
+    const [sum,ten,groups,hist]=await Promise.all([
+      _g('/alerts/summary'),_g('/alerts/by-tenant'),
+      _g('/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),_g('/alerts/history?days=30')]);
+    renderAlBand(sum); renderAlUnits(ten, groups); renderAlHist(hist);
   }catch(e){ /* silencioso; painéis mostram indisponível */ }
   finally{ _alBusy=false; }
 }
