@@ -1573,14 +1573,14 @@ function renderAlBand(sum){
   el.innerHTML=
     `<div class="al-card"><div class="h">Workbenches · 30 dias</div><div class="big">${_alNum(sum.total30d)}</div>`+
       `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
-      `<span>Fechados <b>${_alNum(st['Closed'])}</b></span></div></div>`+
+      `<span>Fechados <b>${_alNum(st['Closed']||0)}</b></span></div></div>`+
     `<div class="al-card"><div class="h">Por severidade <i>30 dias</i></div>${_sevBars(sum.severity30d)}</div>`+
     `<div class="al-card"><div class="h">Por status</div>${_statusRows(st)}</div>`+
     `<div class="al-card"><div class="h">MTTD / MTTR <i>média</i></div>${_mttBlock(sum.mtt||{},sum.mttBySegment||{})}</div>`;
 }
 function renderAlTenants(t0){
   const el=document.getElementById('alTenants'); if(!el) return;
-  if(!t0||t0.status!=='ok'){ el.innerHTML=''; return; }
+  if(!t0||t0.status!=='ok'){ el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
   _alTenantNames={}; (t0.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
   el.innerHTML=(t0.tenants||[]).map(t=>{ const m=t.mtt||{};
     return `<div class="al-tcard" style="--tcol-accent:${_AL_ACCENT[t.tenantId]||'#5A6B8C'}">`+
@@ -1596,29 +1596,38 @@ function renderAlTenants(t0){
         `<div><span>MTTR</span><b>${_humanize(m.mttrSeconds)}</b></div></div>`+
     `</div>`; }).join('');
 }
+function _alTenHeader(name){
+  return `<div class="li" style="opacity:.85;background:rgba(255,255,255,.03)"><span class="nm" style="font-weight:700;letter-spacing:.3px">${_esc(name)}</span></div>`;
+}
 function _alUnRow(u){
   if(!u||!u.total) return '';
   return `<div class="li" style="opacity:.72"><span class="nm" style="font-style:italic">↳ Não atribuídos <small>sem mapeamento de instância</small></span>`+
-    `<span class="sc">${_alNum(u.active)} ativos · ${_alNum(u.total)} total</span></div>`;
+    `<span class="sc">${_alNum(u.active)} ativos · ${_alNum(u.total30d)} em 30d</span></div>`;
 }
 function renderAlSubindex(org){
   const el=document.getElementById('alSubindex'); if(!el) return;
   if(!org||org.status!=='ok'){ el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; return; }
   const un={}; (org.unassigned||[]).forEach(u=>un[u.tenantId]=u);
+  const seen=new Set();
   let html='', curT=null;
   (org.organizations||[]).forEach(o=>{
     if(o.tenantId!==curT){ if(curT!==null) html+=_alUnRow(un[curT]);
-      curT=o.tenantId;
-      html+=`<div class="li" style="opacity:.85;background:rgba(255,255,255,.03)"><span class="nm" style="font-weight:700;letter-spacing:.3px">${_esc(o.tenantName)}</span></div>`; }
+      curT=o.tenantId; seen.add(curT);
+      html+=_alTenHeader(o.tenantName); }
     const m=o.mtt||{};
     html+=`<div class="li"><span class="nm">${_esc(o.organizationName)}<small>${_alNum(o.active)} ativos · ${_alNum(o.total30d)} em 30d</small></span>`+
       `<span class="sc">MTTD ${_humanize(m.mttdSeconds)} · MTTR ${_humanize(m.mttrSeconds)}</span></div>`;
   });
   if(curT!==null) html+=_alUnRow(un[curT]);
+  // tenants presentes SO em nao-atribuidos (sem orgao habilitado) — nao perder as contagens
+  Object.keys(un).forEach(tid=>{ if(!seen.has(tid) && un[tid] && un[tid].total){
+    html+=_alTenHeader(_prettyTenant(tid))+_alUnRow(un[tid]); }});
   el.innerHTML=html||'<div class="li"><span class="nm" style="color:var(--muted)">Sem órgãos habilitados</span></div>';
 }
 function renderAlHist(d){
-  const el=document.getElementById('alHist'); if(!el||!d||d.status!=='ok') return;
+  const el=document.getElementById('alHist'); if(!el) return;
+  const lv0=document.getElementById('alHistLive');
+  if(!d||d.status!=='ok'){ if(lv0) lv0.style.display='none'; return; }   // não deixa 'AO VIVO' com dado velho
   const dates=Object.keys(d.consolidated||{}).sort();
   const tenants=Object.keys(d.byTenant||{});
   const short=(s)=>s.slice(5).replace('-','/');

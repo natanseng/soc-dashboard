@@ -51,9 +51,10 @@ def test_resolve_negative_is_none():
 
 # ---------- matchedDateTime de filters E events ----------
 def test_matched_times_from_filters_and_events():
-    alert = _alert(matchedRules=[{
-        "matchedFilters": [{"matchedDateTime": "2026-07-20T00:00:40Z"}],
-        "matchedEvents": [{"matchedDateTime": "2026-07-20T00:01:10Z"}]}])
+    # schema real V3: matchedEvents ANINHADO dentro de matchedFilters
+    alert = _alert(matchedRules=[{"matchedFilters": [
+        {"matchedDateTime": "2026-07-20T00:00:40Z",
+         "matchedEvents": [{"matchedDateTime": "2026-07-20T00:01:10Z"}]}]}])
     ts = wa._matched_times(alert)
     assert len(ts) == 2 and min(ts) == _dt("2026-07-20T00:00:40Z") and max(ts) == _dt("2026-07-20T00:01:10Z")
 

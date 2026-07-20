@@ -39,17 +39,18 @@ def _parse_dt(s):
 
 
 def _matched_times(alert: dict) -> list:
-    """Todos os matchedDateTime (OAT) de matchedRules[].matchedFilters[] E .matchedEvents[]."""
+    """Todos os matchedDateTime (OAT). Schema real V3: matchedRules[].matchedFilters[].matchedDateTime
+    e matchedRules[].matchedFilters[].matchedEvents[].matchedDateTime (events ANINHADO em filters)."""
     out = []
     for rule in (alert.get("matchedRules") or []):
         for mf in (rule.get("matchedFilters") or []):
             t = _parse_dt(mf.get("matchedDateTime"))
             if t:
                 out.append(t)
-        for me in (rule.get("matchedEvents") or []):
-            t = _parse_dt(me.get("matchedDateTime"))
-            if t:
-                out.append(t)
+            for me in (mf.get("matchedEvents") or []):     # matchedEvents aninhado em matchedFilters
+                te = _parse_dt(me.get("matchedDateTime"))
+                if te:
+                    out.append(te)
     return out
 
 
@@ -159,18 +160,19 @@ _UPSERT = (
     " organization_attribution_evidence=EXCLUDED.organization_attribution_evidence,"
     " attribution_identifiers=EXCLUDED.attribution_identifiers, workbench_link=EXCLUDED.workbench_link,"
     " last_collected_at=now()"
+    " RETURNING (xmax = 0) AS inserted"   # xmax=0 => linha nova (INSERT); senao foi UPDATE
 )
 
 
 async def _persist(conn, tenant_id, r) -> str:
-    tag = await conn.execute(
+    inserted = await conn.fetchval(
         _UPSERT, tenant_id, r["alert_id"], r["severity"], r["status"], r["investigation_status"],
         r["investigation_result"], r["model"], r["model_id"], r["model_type"], r["alert_provider"],
         r["score"], r["created_at"], r["updated_at_v1"], r["matched_first"], r["matched_last"],
         r["oat_count"], r["detect_seconds"], r["resolve_seconds"], r["organization_id"],
         r["attr_status"], r["attr_method"], r["attr_confidence"], r["attr_evidence"],
         r["attribution_identifiers"], r["workbench_link"])
-    return "inserted" if tag.endswith(" 1") else "updated"
+    return "inserted" if inserted else "updated"
 
 
 async def run_wb_alerts(pool, tenant_id: str, token: str, *, base: Optional[str] = None, dry_run: bool = False,
@@ -211,6 +213,7 @@ async def run_wb_alerts(pool, tenant_id: str, token: str, *, base: Optional[str]
              "rows": len(rows), "inserted": 0, "updated": 0,
              "attributed": sum(1 for r in rows if r["attr_status"] == "attributed"),
              "unassigned": sum(1 for r in rows if r["attr_status"] in ("unassigned", "unavailable")),
+             "ambiguous": sum(1 for r in rows if r["attr_status"] == "ambiguous"),
              "with_mttd": sum(1 for r in rows if r["detect_seconds"] is not None),
              "closed": sum(1 for r in rows if r["status"] == "Closed"),
              "with_mttr": sum(1 for r in rows if r["resolve_seconds"] is not None),
@@ -224,8 +227,10 @@ async def run_wb_alerts(pool, tenant_id: str, token: str, *, base: Optional[str]
         async with conn.transaction():
             for r in rows:
                 stats[await _persist(conn, tenant_id, r)] += 1
-            # watermark = maior updatedDateTime processado; so avanca em coleta COMPLETA (GREATEST monotonico)
-            new_wm = max_updated if (complete and max_updated) else wm
+            # watermark = maior updatedDateTime processado. orderBy updatedDateTime ASC => mesmo truncado
+            # o intervalo [start, max_updated] foi coberto contiguamente; avancar e seguro (overlap cobre a
+            # borda) e evita stall de backfill em volume alto. GREATEST no UPSERT garante monotonicidade.
+            new_wm = max_updated if max_updated else wm
             status = "ok" if complete else "partial"
             await conn.execute(
                 "INSERT INTO cyber_collection_state (tenant_id, collector, source, severity_scope, "

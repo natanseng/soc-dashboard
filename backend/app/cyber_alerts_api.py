@@ -109,13 +109,16 @@ async def by_organization(pool, tenant_id=None) -> dict:
             f"ORDER BY o.tenant_id, o.display_order, o.name", *params)
         sev = await conn.fetch(
             f"SELECT tenant_id, organization_id, severity, count(*) n FROM cyber_workbench_alert "
-            f"WHERE organization_id IS NOT NULL{' AND tenant_id=$1' if tenant_id else ''} "
+            f"WHERE organization_id IS NOT NULL AND created_at >= now() - interval '30 days'"
+            f"{' AND tenant_id=$1' if tenant_id else ''} "
             f"GROUP BY tenant_id, organization_id, severity", *params)
         unassigned = await conn.fetch(
-            f"SELECT tenant_id, count(*) AS total, "
-            f"count(*) FILTER (WHERE status IN ('Open','In Progress')) AS active "
-            f"FROM cyber_workbench_alert WHERE organization_attribution_status <> 'attributed'"
-            f"{' AND tenant_id=$1' if tenant_id else ''} GROUP BY tenant_id", *params)
+            f"SELECT a.tenant_id, count(*) AS total, "
+            f"count(*) FILTER (WHERE a.created_at >= now() - interval '30 days') AS total_30d, "
+            f"count(*) FILTER (WHERE a.status IN ('Open','In Progress')) AS active "
+            f"FROM cyber_workbench_alert a JOIN cyber_tenant_config c ON c.tenant_id=a.tenant_id "
+            f"WHERE a.organization_attribution_status <> 'attributed' AND c.cyber_enabled AND c.enabled"
+            f"{' AND a.tenant_id=$1' if tenant_id else ''} GROUP BY a.tenant_id", *params)
     sev_by: dict = {}
     for r in sev:
         sev_by.setdefault((r["tenant_id"], r["organization_id"]), {})[r["severity"] or "unknown"] = int(r["n"])
@@ -128,7 +131,8 @@ async def by_organization(pool, tenant_id=None) -> dict:
             "severity": sev_by.get((r["tenant_id"], r["organization_id"]), {}),
             "mtt": _mtt(r), "status": "ok"})
     return {"status": "ok", "organizations": out,
-            "unassigned": [{"tenantId": r["tenant_id"], "total": int(r["total"]), "active": int(r["active"])}
+            "unassigned": [{"tenantId": r["tenant_id"], "total": int(r["total"]),
+                            "total30d": int(r["total_30d"]), "active": int(r["active"])}
                            for r in unassigned]}
 
 
