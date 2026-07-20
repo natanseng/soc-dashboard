@@ -14,6 +14,7 @@ alertas novos E os que mudaram de status). So avanca em coleta COMPLETA (nao per
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -108,9 +109,38 @@ def _resolve_subindex(alert, collector_map, default_subindex):
     return None, "none"
 
 
+_URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://", re.I)
+
+
+def _shorten_host(req):
+    """URL do campo requests -> host encurtado (sem scheme/www/porta/path). Ex.: www.piloto.e-crvsp.sp.gov.br/x -> piloto.e-crvsp.sp.gov.br."""
+    if not isinstance(req, str) or not req:
+        return None
+    s = _URL_SCHEME.sub("", req.strip())
+    s = s.split("/", 1)[0].split("?", 1)[0]     # host[:porta] antes do path/query
+    s = s.split("@")[-1]                          # remove userinfo
+    s = re.sub(r":\d+$", "", s)                    # remove :porta
+    s = re.sub(r"^www\.", "", s, flags=re.I)
+    return s.lower() or None
+
+
+def _resolve_waf(alert, waf_collectors):
+    """Se algum collectorId do workbench for WAF: (collector_id, host_atacado_mais_frequente do campo requests)."""
+    waf = next((c for c in _collector_ids(alert) if c in waf_collectors), None)
+    if not waf:
+        return None, None
+    hosts = {}
+    for ind in (alert.get("indicators") or []):
+        if ind.get("field") == "requests":
+            hh = _shorten_host(ind.get("value"))
+            if hh:
+                hosts[hh] = hosts.get(hh, 0) + 1
+    return waf, (max(hosts, key=hosts.get) if hosts else None)
+
+
 def build_alert_row(alert: dict, ctx) -> Optional[dict]:
     """Puro: alerta cru -> linha de cyber_workbench_alert (ou None se sem id/created)."""
-    mode, enabled_orgs, mappings, collector_map, default_subindex = ctx
+    mode, enabled_orgs, mappings, collector_map, default_subindex, waf_collectors = ctx
     alert_id = alert.get("id")
     created = _parse_dt(alert.get("createdDateTime"))
     if not alert_id or not created:
@@ -129,9 +159,11 @@ def build_alert_row(alert: dict, ctx) -> Optional[dict]:
 
     attr = resolve_organization(mode, enabled_orgs, ids, lookup)
     subindex, subindex_method = _resolve_subindex(alert, collector_map, default_subindex)
+    waf_collector, waf_url_host = _resolve_waf(alert, waf_collectors)
     return {
         "alert_id": alert_id,
         "subindex": subindex, "subindex_method": subindex_method,
+        "waf_collector": waf_collector, "waf_url_host": waf_url_host,
         "severity": alert.get("severity"),
         "status": status,
         "investigation_status": alert.get("investigationStatus"),
@@ -169,7 +201,9 @@ async def _load_context(conn, tenant_id):
     crows = await conn.fetch(
         "SELECT collector_id, subindex FROM cyber_subindex_collector WHERE tenant_id=$1", tenant_id)
     collector_map = {r["collector_id"]: r["subindex"] for r in crows}
-    return mode, [r["organization_id"] for r in orows], mappings, collector_map, default_subindex
+    wrows = await conn.fetch("SELECT collector_id FROM cyber_waf_collector WHERE tenant_id=$1", tenant_id)
+    waf_collectors = {r["collector_id"] for r in wrows}
+    return mode, [r["organization_id"] for r in orows], mappings, collector_map, default_subindex, waf_collectors
 
 
 _UPSERT = (
@@ -179,8 +213,8 @@ _UPSERT = (
     " matched_first, matched_last, oat_count, detect_seconds, resolve_seconds,"
     " organization_id, organization_attribution_status, organization_attribution_method,"
     " organization_attribution_confidence, organization_attribution_evidence, attribution_identifiers,"
-    " workbench_link, subindex, subindex_method, first_collected_at, last_collected_at)"
-    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25,$26,$27,now(),now())"
+    " workbench_link, subindex, subindex_method, waf_collector, waf_url_host, first_collected_at, last_collected_at)"
+    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25,$26,$27,$28,$29,now(),now())"
     " ON CONFLICT (tenant_id, alert_id) DO UPDATE SET"
     " severity=EXCLUDED.severity, status=EXCLUDED.status, investigation_status=EXCLUDED.investigation_status,"
     " investigation_result=EXCLUDED.investigation_result, model=EXCLUDED.model, model_id=EXCLUDED.model_id,"
@@ -193,6 +227,7 @@ _UPSERT = (
     " organization_attribution_evidence=EXCLUDED.organization_attribution_evidence,"
     " attribution_identifiers=EXCLUDED.attribution_identifiers, workbench_link=EXCLUDED.workbench_link,"
     " subindex=EXCLUDED.subindex, subindex_method=EXCLUDED.subindex_method,"
+    " waf_collector=EXCLUDED.waf_collector, waf_url_host=EXCLUDED.waf_url_host,"
     " last_collected_at=now()"
     " RETURNING (xmax = 0) AS inserted"   # xmax=0 => linha nova (INSERT); senao foi UPDATE
 )
@@ -205,7 +240,8 @@ async def _persist(conn, tenant_id, r) -> str:
         r["score"], r["created_at"], r["updated_at_v1"], r["matched_first"], r["matched_last"],
         r["oat_count"], r["detect_seconds"], r["resolve_seconds"], r["organization_id"],
         r["attr_status"], r["attr_method"], r["attr_confidence"], r["attr_evidence"],
-        r["attribution_identifiers"], r["workbench_link"], r["subindex"], r["subindex_method"])
+        r["attribution_identifiers"], r["workbench_link"], r["subindex"], r["subindex_method"],
+        r["waf_collector"], r["waf_url_host"])
     return "inserted" if inserted else "updated"
 
 

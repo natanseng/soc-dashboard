@@ -178,6 +178,22 @@ async def coverage(pool) -> dict:
                           "coveragePct": pct(r["attributed"], r["total"])} for r in by_s]}
 
 
+async def waf_blocks(pool) -> dict:
+    """Bloqueios WAF: workbenches (30d) de coletores WAF + Top 10 hosts atacados (campo requests, encurtado)."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT count(*) FILTER (WHERE created_at >= now() - interval '30 days') AS total_30d, "
+            "count(*) FILTER (WHERE status IN ('Open','In Progress')) AS active "
+            "FROM cyber_workbench_alert WHERE waf_collector IS NOT NULL")
+        tops = await conn.fetch(
+            "SELECT waf_url_host, count(*) n FROM cyber_workbench_alert "
+            "WHERE waf_collector IS NOT NULL AND waf_url_host IS NOT NULL "
+            "AND created_at >= now() - interval '30 days' "
+            "GROUP BY waf_url_host ORDER BY n DESC, waf_url_host LIMIT 10")
+    return {"status": "ok", "total30d": int(row["total_30d"]), "active": int(row["active"]),
+            "topUrls": [{"host": r["waf_url_host"], "count": int(r["n"])} for r in tops]}
+
+
 async def map_points(pool, layer=None, **f) -> dict:
     where, params, i = _obs_filters(**f)
     layer_sql = ""

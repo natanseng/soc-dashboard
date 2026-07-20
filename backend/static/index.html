@@ -413,7 +413,18 @@ body{
 #map .p-rankings>.panel{min-height:0}
 #map .p-rankings .phead h3{font-size:12px;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #map .p-rankings .phead .livetag{white-space:nowrap;flex-shrink:0}
-#map #cyberOrgList,#map #iocList{min-height:0}
+#map #cyberOrgList,#map #iocList,#map #wafList{min-height:0}
+.waf-head{display:flex;align-items:baseline;gap:8px;padding:1px 2px 7px}
+.waf-head b{font-family:var(--display);font-weight:800;font-size:29px;line-height:1;color:var(--crit)}
+.waf-head span{font-size:11px;color:var(--muted)}
+.waf-sub{font-family:var(--display);font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;flex-shrink:0}
+.waf-sub span{color:var(--dim);font-weight:600;text-transform:none;letter-spacing:0}
+#wafList .li{gap:8px}
+#wafList .rank{font-family:var(--mono);font-size:11px;color:var(--dim);width:16px;flex-shrink:0}
+#wafList .nm{flex:0 1 auto;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#wafList .wbar{flex:1;height:6px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;min-width:24px}
+#wafList .wbar .wfill{display:block;height:100%;background:var(--crit);border-radius:4px}
+#wafList .sc{font-family:var(--mono);font-weight:700;font-size:12px}
 
 @media (max-width:1100px){
   #soc{grid-template-columns:1fr 1fr}
@@ -536,10 +547,11 @@ body{
       <div id="iocTip" style="position:absolute;display:none;pointer-events:none;z-index:20;max-width:260px;background:rgba(7,11,20,.96);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:11px;color:#E7EEFB;box-shadow:0 6px 24px rgba(0,0,0,.55);backdrop-filter:blur(4px)"></div>
     </div>
     <div class="p-rankings">
-      <div class="panel" style="flex:0 0 auto">
-        <div class="phead"><span class="ico"></span><h3>Indicadores por órgão</h3><span class="livetag" id="cyberLive" style="display:none">● AO VIVO</span></div>
-        <div class="list" id="cyberOrgList" title="Indicadores públicos externos (IP, domínio, URL) extraídos de detecções OAT e alertas Workbench High/Critical, atribuídos ao órgão dentro do tenant. Bloqueio confirmado / Associado à política / Apenas observado."></div>
-        <div id="cyberCov" style="padding:7px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)"></div>
+      <div class="panel" style="flex:1.6 1 auto">
+        <div class="phead"><span class="ico"></span><h3>Bloqueios WAF</h3><span class="sub">últimos 30 dias</span><span class="livetag" id="wafLive" style="display:none">● AO VIVO</span></div>
+        <div class="waf-head"><b id="wafTotal">—</b><span>workbenches · <b id="wafActive" style="color:var(--high)">—</b> ativos</span></div>
+        <div class="waf-sub">Top 10 · URLs atacadas <span>(host)</span></div>
+        <div class="list" id="wafList" title="Workbenches gerados por detecções de coletores WAF (Imperva/WAF), últimos 30 dias. URLs encurtadas ao host atacado (campo requests do OAT)."></div>
       </div>
       <div class="panel" style="flex:1 1 auto">
         <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">por risco</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
@@ -914,7 +926,7 @@ function go(i){
   const sc=document.getElementById(screens[cur]); sc.classList.add('active');
   navDots.children[cur].classList.add('on');
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
-  if(screens[cur]==='map'){ loadCyber(); }                   // tela Cyber: dados reais /cyber/*
+  if(screens[cur]==='map'){ loadCyber(); loadWaf(); }        // tela Cyber: dados reais /cyber/*
   if(screens[cur]==='alertas'){ loadAlertas(); }             // tela Alertas: dados reais /alerts/*
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
@@ -948,7 +960,7 @@ function refreshData(){
   loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dados reais, cache no servidor
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
-  if(act && act.id==='map') loadCyber();   // atualiza a tela Cyber com dados reais
+  if(act && act.id==='map'){ loadCyber(); loadWaf(); }   // atualiza a tela Cyber com dados reais
   if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
 }
 
@@ -1028,6 +1040,25 @@ async function loadCyber(){
     if(listEl) listEl.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>';
     if(covEl) covEl.textContent='';
   } finally { _cyberBusy=false; }
+}
+/* Bloqueios WAF: workbenches de coletores WAF (30d) + Top 10 hosts atacados (dados reais /cyber/waf). */
+async function loadWaf(){
+  const el=document.getElementById('wafList'); if(!el) return;
+  const live=document.getElementById('wafLive');
+  const setT=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=(v==null?'—':_cyNum(v)); };
+  try{
+    const d=await fetch(API_BASE+'/cyber/waf',{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
+    if(!d || d.status!=='ok'){ setT('wafTotal',null); setT('wafActive',null); if(live) live.style.display='none';
+      el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; return; }
+    setT('wafTotal',d.total30d); setT('wafActive',d.active); if(live) live.style.display='';
+    const tops=d.topUrls||[]; const mx=Math.max(1,...tops.map(u=>u.count||0));
+    el.innerHTML = tops.length ? tops.map((u,i)=>
+      '<div class="li"><span class="rank">'+(i+1)+'</span>'+
+      '<span class="nm" title="'+_esc(u.host)+'">'+_esc(u.host)+'</span>'+
+      '<span class="wbar"><span class="wfill" style="width:'+Math.round((u.count||0)/mx*100)+'%"></span></span>'+
+      '<span class="sc">'+_cyNum(u.count)+'</span></div>').join('')
+      : '<div class="li"><span class="nm" style="color:var(--muted)">Nenhum bloqueio WAF no período</span></div>';
+  }catch(e){ el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; }
 }
 
 /* ======================================================

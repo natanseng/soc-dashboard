@@ -14,6 +14,7 @@ MIGRATION_003 = REPO_ROOT / "infra" / "migrations" / "003_cyber_attribution_poli
 MIGRATION_004 = REPO_ROOT / "infra" / "migrations" / "004_cyber_attribution_audit.sql"
 MIGRATION_005 = REPO_ROOT / "infra" / "migrations" / "005_cyber_workbench_alert.sql"
 MIGRATION_006 = REPO_ROOT / "infra" / "migrations" / "006_cyber_workbench_subindex.sql"
+MIGRATION_007 = REPO_ROOT / "infra" / "migrations" / "007_cyber_waf.sql"
 
 _BASE_TENANT_DDL = (
     "CREATE TABLE tenant ("
@@ -61,6 +62,7 @@ async def reg_pool():
         await setup.execute(MIGRATION_004.read_text(encoding="utf-8"))
         await setup.execute(MIGRATION_005.read_text(encoding="utf-8"))
         await setup.execute(MIGRATION_006.read_text(encoding="utf-8"))
+        await setup.execute(MIGRATION_007.read_text(encoding="utf-8"))
     finally:
         await setup.close()
 

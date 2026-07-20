@@ -284,6 +284,17 @@ async def cyber_coverage():
         return {"status": "unavailable"}
 
 
+@app.get("/cyber/waf")
+async def cyber_waf():
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable"}
+    try:
+        return await cyber_api.waf_blocks(pool)
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable"}
+
+
 @app.get("/cyber/status")
 async def cyber_status():
     pool = db.get_pool()
