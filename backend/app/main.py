@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .cache import get_redis
-from . import db, cyber_registry, cyber_tokens, cyber_api, cyber_asset_groups
+from . import db, cyber_registry, cyber_tokens, cyber_api, cyber_asset_groups, cyber_alerts_api
 
 
 @asynccontextmanager
@@ -136,6 +136,48 @@ async def cyber_asset_groups_route(tenantId: str):
     pool = db.get_pool()
     redis = getattr(app.state, "redis", None)
     return await cyber_asset_groups.get_asset_groups(pool, redis, tenantId)
+
+
+# ---------------------------------------------------------------------------
+# Tela "Alertas": workbenches consolidados (read-only sobre cyber_workbench_alert)
+# ---------------------------------------------------------------------------
+async def _alerts_call(fn, **kw):
+    pool = db.get_pool()
+    if pool is None:
+        return {"status": "unavailable"}
+    try:
+        return await fn(pool, **kw)
+    except Exception:  # noqa: BLE001 — nao vaza detalhes internos/DSN
+        return {"status": "unavailable"}
+
+
+@app.get("/alerts/summary")
+async def alerts_summary():
+    return await _alerts_call(cyber_alerts_api.summary)
+
+
+@app.get("/alerts/by-tenant")
+async def alerts_by_tenant():
+    return await _alerts_call(cyber_alerts_api.by_tenant)
+
+
+@app.get("/alerts/by-organization")
+async def alerts_by_organization(tenantId: Optional[str] = None):
+    return await _alerts_call(cyber_alerts_api.by_organization, tenant_id=tenantId)
+
+
+@app.get("/alerts/history")
+async def alerts_history(days: int = 30):
+    return await _alerts_call(cyber_alerts_api.history, days=days)
+
+
+@app.get("/alerts/events")
+async def alerts_events(tenantId: Optional[str] = None, organizationId: Optional[str] = None,
+                        severity: Optional[str] = None, status: Optional[str] = None,
+                        modelType: Optional[str] = None, unassigned: bool = False, limit: int = 100):
+    return await _alerts_call(cyber_alerts_api.events, tenant_id=tenantId, organization_id=organizationId,
+                              severity=severity, status=status, model_type=modelType,
+                              unassigned=unassigned, limit=limit)
 
 
 @app.get("/cyber/summary")

@@ -22,6 +22,7 @@ from .cyber_oat import run_oat
 from .cyber_retention import run_retention
 from .cyber_suspicious_objects import run_sync as so_sync
 from .cyber_workbench import run_wb
+from .cyber_workbench_alerts import run_wb_alerts
 
 log = logging.getLogger("cyber.scheduler")
 _running: set = set()
@@ -65,6 +66,10 @@ def _make_jobs(pool):
         for tid, tok in await enabled_tenants(pool):
             await guarded(("wb", tid), lambda tid=tid, tok=tok: run_wb(pool, tid, tok))
 
+    async def job_wba():   # inventario de workbenches (tela Alertas)
+        for tid, tok in await enabled_tenants(pool):
+            await guarded(("wba", tid), lambda tid=tid, tok=tok: run_wb_alerts(pool, tid, tok))
+
     async def job_so():
         for tid, tok in await enabled_tenants(pool):
             await guarded(("so", tid), lambda tid=tid, tok=tok: so_sync(pool, tid, tok))
@@ -78,7 +83,7 @@ def _make_jobs(pool):
     async def job_retention():
         await guarded(("retention",), lambda: run_retention(pool))
 
-    return {"oat": job_oat, "wb": job_wb, "so": job_so, "geo": job_geo,
+    return {"oat": job_oat, "wb": job_wb, "wba": job_wba, "so": job_so, "geo": job_geo,
             "capability": job_capability, "retention": job_retention}
 
 
@@ -86,7 +91,7 @@ def build_scheduler(pool, *, run_now: bool = False) -> AsyncIOScheduler:
     jobs = _make_jobs(pool)
     sch = AsyncIOScheduler(timezone="UTC")
     nrt = datetime.now(timezone.utc) if run_now else None
-    specs = [("oat", 60), ("wb", 300), ("so", 900), ("geo", 300), ("capability", 600), ("retention", 1800)]
+    specs = [("oat", 60), ("wb", 300), ("wba", 600), ("so", 900), ("geo", 300), ("capability", 600), ("retention", 1800)]
     for jid, secs in specs:
         kw = {"id": jid, "max_instances": 1, "coalesce": True}
         if nrt is not None:

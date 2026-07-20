@@ -37,7 +37,7 @@ async def _delete_batched(conn, table, tcol, pk, cutoff, batch) -> int:
 
 
 async def run_retention(pool, *, oat_hours: float = 30, wb_hours: float = 30, discard_hours: float = 30,
-                        batch: int = 5000, dry_run: bool = False) -> dict:
+                        wba_days: int = 35, batch: int = 5000, dry_run: bool = False) -> dict:
     now = datetime.now(timezone.utc)
     cutoffs = {
         "cyber_oat_observation": now - timedelta(hours=oat_hours),
@@ -61,4 +61,19 @@ async def run_retention(pool, *, oat_hours: float = 30, wb_hours: float = 30, di
                                              "status": "ok"}
         except Exception as exc:  # noqa: BLE001 — falha por alvo nao derruba os demais
             out["targets"][table] = {"status": "error", "error": type(exc).__name__}
+
+    # cyber_workbench_alert: retencao de 35 dias por created_at (inventario da tela Alertas;
+    # PK composta (tenant,alert_id) -> delete direto por cutoff, volume por ciclo e pequeno).
+    cutoff_wba = now - timedelta(days=wba_days)
+    try:
+        async with pool.acquire() as conn:
+            if dry_run:
+                n = int(await conn.fetchval("SELECT count(*) FROM cyber_workbench_alert WHERE created_at < $1", cutoff_wba))
+                out["targets"]["cyber_workbench_alert"] = {"would_delete": n, "cutoff": cutoff_wba.isoformat()}
+            else:
+                tag = await conn.execute("DELETE FROM cyber_workbench_alert WHERE created_at < $1", cutoff_wba)
+                n = int(tag.split()[-1]) if tag.startswith("DELETE") else 0
+                out["targets"]["cyber_workbench_alert"] = {"deleted": n, "cutoff": cutoff_wba.isoformat(), "status": "ok"}
+    except Exception as exc:  # noqa: BLE001
+        out["targets"]["cyber_workbench_alert"] = {"status": "error", "error": type(exc).__name__}
     return out

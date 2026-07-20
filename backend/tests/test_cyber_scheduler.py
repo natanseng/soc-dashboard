@@ -33,7 +33,7 @@ async def test_guarded_runs_after_release():
 
 def test_build_scheduler_has_all_jobs():
     s = build_scheduler(object())
-    assert {j.id for j in s.get_jobs()} == {"oat", "wb", "so", "geo", "capability", "retention"}
+    assert {j.id for j in s.get_jobs()} == {"oat", "wb", "wba", "so", "geo", "capability", "retention"}
 
 
 async def test_enabled_tenants_skips_without_token(reg_pool, monkeypatch):

@@ -271,6 +271,40 @@ body{
 .sub-meta .sub-assets{font-size:10.5px;color:var(--muted)}
 .sub-msg{color:var(--dim);padding:24px;text-align:center;font-size:12px}
 .c-dim{color:var(--dim)}
+/* ===== Tela Alertas ===== */
+#alertas.screen{display:flex;flex-direction:column;gap:14px}
+.al-band{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex-shrink:0}
+.al-card{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 14px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;min-height:0}
+.al-card::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--brand)}
+.al-card .h{font-family:var(--display);font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.al-card .h i{color:var(--dim);font-weight:600;font-style:normal;font-size:9px;margin-left:5px}
+.al-card .big{font-family:var(--display);font-weight:800;font-size:30px;line-height:1}
+.al-sub{display:flex;gap:16px;font-size:11px;color:var(--muted)}
+.al-sub b{font-family:var(--mono)}
+.al-kv{display:flex;align-items:center;gap:8px;font-size:11.5px;margin:2px 0}
+.al-kv span{color:var(--muted);flex:1}
+.al-kv b{font-family:var(--mono);font-weight:700}
+.al-seg{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;font-size:9.5px;color:var(--dim)}
+.al-tenants{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex-shrink:0}
+.al-tcard{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;min-height:0}
+.al-tcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
+.al-tcard .tname{font-size:17px}
+.al-sevbar{display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0}
+.al-sevbar .lbl{width:62px;color:var(--muted);text-transform:capitalize}
+.al-sevbar .track{flex:1;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+.al-sevbar .fill{height:100%;border-radius:4px}
+.al-sevbar .n{font-family:var(--mono);font-weight:700;width:46px;text-align:right}
+.al-statrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.al-stat{text-align:center;background:rgba(255,255,255,.03);border-radius:7px;padding:5px 3px}
+.al-stat b{display:block;font-family:var(--display);font-size:16px;font-weight:800}
+.al-stat span{font-size:8.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+.al-mtt{display:flex;gap:12px}
+.al-mtt>div{flex:1;background:rgba(255,255,255,.03);border-radius:7px;padding:5px 9px}
+.al-mtt span{color:var(--muted);font-size:10px}
+.al-mtt b{font-family:var(--mono);font-size:14px;font-weight:700;display:block}
+.al-bottom{flex:1;min-height:0;display:flex;gap:14px}
+.al-bottom .panel{min-height:0}
+.bg-crit{background:var(--crit)}.bg-high{background:var(--high)}.bg-med{background:var(--med)}.bg-low{background:var(--low)}.bg-info{background:var(--info)}
 .tcol-sub .tsec.grow{display:flex;flex-direction:column}
 .tcol-sub .tsec.grow .tsub-wait{flex:1}
 .tcol{display:flex;flex-direction:column;gap:9px;min-height:0;min-width:0;position:relative;overflow:hidden;
@@ -413,6 +447,22 @@ body{
       <div class="dashpagehead">Cyber Risk Subindexes</div>
       <div class="sub-org" id="subOrgBand"></div>
       <div class="sub-gauges" id="subGauges"></div>
+    </div>
+  </section>
+
+  <!-- ===================== ALERTAS (workbenches consolidados) ===================== -->
+  <section class="screen" id="alertas">
+    <div class="al-band" id="alBand"><div class="rmsg">Carregando…</div></div>
+    <div class="al-tenants" id="alTenants"></div>
+    <div class="al-bottom">
+      <div class="panel" style="flex:1.5">
+        <div class="phead"><span class="ico"></span><h3>Workbenches · últimos 30 dias</h3><span class="sub">por dia de criação</span><span class="livetag" id="alHistLive" style="display:none">● AO VIVO</span></div>
+        <div style="flex:1;min-height:0"><div class="echart" id="alHist"></div></div>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="phead"><span class="ico"></span><h3>Correlação por Subíndice</h3><span class="sub">SGGD · por instância/subórgão</span></div>
+        <div class="list" id="alSubindex"></div>
+      </div>
     </div>
   </section>
 
@@ -836,8 +886,8 @@ function renderIOC(){
 }
 
 /* ---------- screen rotation ---------- */
-const screens=['exec','vuln','soc','map'];
-const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],vuln:['VULNERABILITY MANAGEMENT','Vulnerabilidades']};
+const screens=['exec','alertas','vuln','soc','map'];
+const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],alertas:['ALERT MANAGEMENT','Alertas'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],vuln:['VULNERABILITY MANAGEMENT','Vulnerabilidades']};
 let cur=0, paused=false, rotStart=performance.now(), ROT=20000;
 // build dots (pontinhos de navegação) — referência explícita ao elemento #dots
 const navDots = document.getElementById('dots');
@@ -861,6 +911,7 @@ function go(i){
   navDots.children[cur].classList.add('on');
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
   if(screens[cur]==='map'){ loadCyber(); }                   // tela Cyber: dados reais /cyber/*
+  if(screens[cur]==='alertas'){ loadAlertas(); }             // tela Alertas: dados reais /alerts/*
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
 }
@@ -894,6 +945,7 @@ function refreshData(){
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
   if(act && act.id==='map') loadCyber();   // atualiza a tela Cyber com dados reais
+  if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
 }
 
 /* ---------- Tela Cyber (§18): dados REAIS de /cyber/* ----------
@@ -1470,6 +1522,127 @@ async function loadSubindexes(){
     if(meta){ const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
       meta.innerHTML=`<span class="tag c-${L.c}">${L.t} risco</span><span class="sub-assets">${_sv(g.assetCount)} ativos</span>`; }
   });
+}
+/* ---------- Tela "Alertas" (workbenches consolidados) — dados reais /alerts/* ---------- */
+const _SEVCLS={critical:'crit',high:'high',medium:'med',low:'low',info:'info'};
+const _SEVORD=['critical','high','medium','low','info'];
+const _AL_ACCENT={'prodesp-sp':'#E5202E','detran-sp':'#5B8DEF','iamspe-sp':'#27D98A','sggd':'#FFB020'};
+let _alTenantNames={};
+function _alNum(v){ return (v==null)?'—':Number(v).toLocaleString('pt-BR'); }
+function _prettyTenant(t){ return _alTenantNames[t]||t; }
+function _humanize(s){
+  if(s==null) return '—'; s=Math.round(s);
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m';
+  if(s<86400){ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h+'h'+(m?(' '+m+'m'):''); }
+  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600); return d+'d'+(h?(' '+h+'h'):'');
+}
+function _agoTime(iso){
+  try{ const s=(Date.now()-new Date(iso).getTime())/1000;
+    if(s<90) return 'agora'; if(s<3600) return Math.floor(s/60)+'m atrás';
+    if(s<86400) return Math.floor(s/3600)+'h atrás'; return Math.floor(s/86400)+'d atrás'; }catch(e){ return '—'; }
+}
+function _sevOrdered(obj){
+  const ks=Object.keys(obj||{}); const ord=_SEVORD.filter(k=>k in obj);
+  return [...ord, ...ks.filter(k=>!_SEVORD.includes(k)).sort()];
+}
+function _sevBars(obj){
+  const ks=_sevOrdered(obj); if(!ks.length) return '<div style="color:var(--dim);font-size:11px">Sem dados</div>';
+  const mx=Math.max(1,...ks.map(k=>obj[k]||0));
+  return ks.map(k=>{ const c=_SEVCLS[k]||'low', n=obj[k]||0;
+    return `<div class="al-sevbar"><span class="lbl">${_esc(k)}</span>`+
+      `<div class="track"><div class="fill bg-${c}" style="width:${Math.round(n/mx*100)}%"></div></div>`+
+      `<span class="n c-${c}">${_alNum(n)}</span></div>`; }).join('');
+}
+function _statusRows(st){
+  return [['Open','Aberto','high'],['In Progress','Em andamento','med'],['Closed','Fechado','low']].map(([k,lbl,c])=>
+    `<div class="al-kv"><span>${lbl}</span><b class="c-${c}">${_alNum(st[k]||0)}</b></div>`).join('');
+}
+function _mttBlock(mtt,seg){
+  const line=(lbl,sec,n)=>`<div class="al-kv"><span>${lbl}</span><b class="mono">${_humanize(sec)}</b>`+
+    `<i style="color:var(--dim);font-size:9.5px;font-style:normal">n=${_alNum(n||0)}</i></div>`;
+  let h=line('MTTD', mtt.mttdSeconds, mtt.mttdSampleSize)+line('MTTR', mtt.mttrSeconds, mtt.mttrSampleSize);
+  const p=seg&&seg.preset, c=seg&&seg.custom;
+  if(p||c) h+=`<div class="al-seg">MTTD nativo ${_humanize(p&&p.mttdSeconds)} · custom ${_humanize(c&&c.mttdSeconds)}</div>`;
+  return h;
+}
+function renderAlBand(sum){
+  const el=document.getElementById('alBand'); if(!el) return;
+  if(!sum||sum.status!=='ok'){ el.innerHTML='<div class="rmsg">Dados indisponíveis</div>'; return; }
+  const st=sum.byStatus||{};
+  el.innerHTML=
+    `<div class="al-card"><div class="h">Workbenches · 30 dias</div><div class="big">${_alNum(sum.total30d)}</div>`+
+      `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
+      `<span>Fechados <b>${_alNum(st['Closed'])}</b></span></div></div>`+
+    `<div class="al-card"><div class="h">Por severidade <i>30 dias</i></div>${_sevBars(sum.severity30d)}</div>`+
+    `<div class="al-card"><div class="h">Por status</div>${_statusRows(st)}</div>`+
+    `<div class="al-card"><div class="h">MTTD / MTTR <i>média</i></div>${_mttBlock(sum.mtt||{},sum.mttBySegment||{})}</div>`;
+}
+function renderAlTenants(t0){
+  const el=document.getElementById('alTenants'); if(!el) return;
+  if(!t0||t0.status!=='ok'){ el.innerHTML=''; return; }
+  _alTenantNames={}; (t0.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
+  el.innerHTML=(t0.tenants||[]).map(t=>{ const m=t.mtt||{};
+    return `<div class="al-tcard" style="--tcol-accent:${_AL_ACCENT[t.tenantId]||'#5A6B8C'}">`+
+      `<div class="tcol-head"><div class="tname">${_esc(t.tenantName)}</div>`+
+        `<div class="tsublabel">${t.lastUpdate?_agoTime(t.lastUpdate):'—'}</div></div>`+
+      `<div class="al-sevmini">${_sevBars(t.severityActive)}</div>`+
+      `<div class="al-statrow">`+
+        `<div class="al-stat"><b class="c-high">${_alNum(t.open)}</b><span>Abertos</span></div>`+
+        `<div class="al-stat"><b class="c-med">${_alNum(t.inProgress)}</b><span>Em and.</span></div>`+
+        `<div class="al-stat"><b>${_alNum(t.active)}</b><span>Ativos</span></div>`+
+        `<div class="al-stat"><b>${_alNum(t.total30d)}</b><span>30 dias</span></div></div>`+
+      `<div class="al-mtt"><div><span>MTTD</span><b>${_humanize(m.mttdSeconds)}</b></div>`+
+        `<div><span>MTTR</span><b>${_humanize(m.mttrSeconds)}</b></div></div>`+
+    `</div>`; }).join('');
+}
+function _alUnRow(u){
+  if(!u||!u.total) return '';
+  return `<div class="li" style="opacity:.72"><span class="nm" style="font-style:italic">↳ Não atribuídos <small>sem mapeamento de instância</small></span>`+
+    `<span class="sc">${_alNum(u.active)} ativos · ${_alNum(u.total)} total</span></div>`;
+}
+function renderAlSubindex(org){
+  const el=document.getElementById('alSubindex'); if(!el) return;
+  if(!org||org.status!=='ok'){ el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; return; }
+  const un={}; (org.unassigned||[]).forEach(u=>un[u.tenantId]=u);
+  let html='', curT=null;
+  (org.organizations||[]).forEach(o=>{
+    if(o.tenantId!==curT){ if(curT!==null) html+=_alUnRow(un[curT]);
+      curT=o.tenantId;
+      html+=`<div class="li" style="opacity:.85;background:rgba(255,255,255,.03)"><span class="nm" style="font-weight:700;letter-spacing:.3px">${_esc(o.tenantName)}</span></div>`; }
+    const m=o.mtt||{};
+    html+=`<div class="li"><span class="nm">${_esc(o.organizationName)}<small>${_alNum(o.active)} ativos · ${_alNum(o.total30d)} em 30d</small></span>`+
+      `<span class="sc">MTTD ${_humanize(m.mttdSeconds)} · MTTR ${_humanize(m.mttrSeconds)}</span></div>`;
+  });
+  if(curT!==null) html+=_alUnRow(un[curT]);
+  el.innerHTML=html||'<div class="li"><span class="nm" style="color:var(--muted)">Sem órgãos habilitados</span></div>';
+}
+function renderAlHist(d){
+  const el=document.getElementById('alHist'); if(!el||!d||d.status!=='ok') return;
+  const dates=Object.keys(d.consolidated||{}).sort();
+  const tenants=Object.keys(d.byTenant||{});
+  const short=(s)=>s.slice(5).replace('-','/');
+  const series=tenants.map(t=>({name:_prettyTenant(t),type:'bar',stack:'wb',
+    itemStyle:{color:_AL_ACCENT[t]||'#5A6B8C'}, data:dates.map(dt=>(d.byTenant[t]||{})[dt]||0)}));
+  const opt={grid:{left:40,right:12,top:26,bottom:22},
+    legend:{top:0,textStyle:{color:'#8696B8',fontSize:10},itemWidth:10,itemHeight:8},
+    tooltip:{trigger:'axis',backgroundColor:'#0b1426',borderColor:'#243352',textStyle:{color:'#E7EEFB',fontSize:11}},
+    xAxis:{type:'category',data:dates.map(short),axisLabel:{color:'#5A6B8C',fontSize:9,interval:Math.max(0,Math.floor(dates.length/12))},axisLine:{lineStyle:{color:'#243352'}}},
+    yAxis:{type:'value',axisLabel:{color:'#5A6B8C',fontSize:9},splitLine:{lineStyle:{color:'#1B2740'}}},
+    series};
+  if(charts['alHist']) charts['alHist'].setOption(opt,true); else reg('alHist',opt);
+  const lv=document.getElementById('alHistLive'); if(lv) lv.style.display='';
+}
+let _alBusy=false;
+async function loadAlertas(){
+  if(_alBusy) return; _alBusy=true;
+  const _g=(p)=>fetch(API_BASE+p,{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
+  try{
+    const [sum,ten,org,hist]=await Promise.all([
+      _g('/alerts/summary'),_g('/alerts/by-tenant'),_g('/alerts/by-organization'),_g('/alerts/history?days=30')]);
+    renderAlBand(sum); renderAlTenants(ten); renderAlSubindex(org); renderAlHist(hist);
+  }catch(e){ /* silencioso; painéis mostram indisponível */ }
+  finally{ _alBusy=false; }
 }
 function buildDashCols(){
   const w0=document.getElementById('dashCols-0');
