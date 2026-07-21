@@ -439,7 +439,24 @@ body{
 .rmsg{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;font-size:13px;letter-spacing:.3px;text-align:center;color:var(--muted);padding:10px}
 .rbadge{font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:5px;margin-left:6px;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;flex-shrink:0}
 .rbadge.on{color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)}
-.rbadge.expl{border-color:currentColor;background:rgba(255,255,255,.04)}   /* Global exploit potential: borda/cor pela severidade */
+/* Top 10 CVEs como TABELA (titulos de coluna no topo): CVE | Exploração global | Máquinas | Regras IPS */
+.cvetbl{display:flex;flex-direction:column;flex:1;min-height:0}
+.cvetbl-h,.cverow{display:grid;grid-template-columns:minmax(0,2.2fr) 1.15fr 1.35fr 0.95fr;gap:12px;align-items:center;padding:0 4px}
+.cvetbl-h{padding-bottom:6px;border-bottom:1px solid var(--line2);flex-shrink:0}
+.cvetbl-h span{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.cvetbl-h .th-r{text-align:right}
+.cvetbl-b{display:flex;flex-direction:column;flex:1;min-height:0}
+.cverow{flex:1;min-height:0;border-bottom:1px solid rgba(255,255,255,.045)}
+.cverow:last-child{border-bottom:0}
+.cvecve{display:flex;align-items:baseline;gap:7px;min-width:0}
+.cvecve b{font-family:var(--display);font-size:12.5px;white-space:nowrap}
+.cvecve small{color:var(--dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cvexpl{font-family:var(--display);font-weight:800;font-size:12.5px;white-space:nowrap}
+.cvemaq{text-align:right}
+.cvemaq b{font-family:var(--display);font-weight:800;font-size:14px}
+.cvemaq .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:4px}
+.cvemaq .bar i{display:block;height:100%;border-radius:3px}
+.cveips{text-align:right;font-family:var(--display);font-weight:700;font-size:12.5px;white-space:nowrap}
 
 #map.screen{grid-template-columns:1fr 320px;grid-template-rows:minmax(0,1fr);gap:14px}
 #map .p-rankings{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
@@ -610,7 +627,7 @@ body{
           <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vcves">
-          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · ⚡ exploração global · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">ranqueado por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vservers">
@@ -1439,13 +1456,6 @@ function _vSev(level, val){
   if(l==='low') return 'low';
   return val>=1000?'high':(val>=100?'med':'low');
 }
-// Chip do Global exploit potential (globalExploitActivityLevel) — exibido junto ao impact score nos CVEs.
-function _exploitChip(level){
-  const l=String(level||'').toLowerCase();
-  const M={high:['Alta','crit'],medium:['Média','high'],low:['Baixa','med'],none:['Nenhuma','dim']};
-  const m=M[l]||['n/d','dim'];
-  return '<span class="rbadge expl c-'+m[1]+'" title="Global exploit potential: '+_esc(level||'n/d')+'">⚡ '+m[0]+'</span>';
-}
 function renderRankBars(id, rows, opt){
   const el=document.getElementById(id); if(!el) return;
   if(!Array.isArray(rows)||!rows.length){ setPanelState(id,'empty'); return; }
@@ -1497,23 +1507,46 @@ function renderExploitSummary(sum, status){
     `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
   _vLive('vSummaryLive', total!=null);
 }
+// Top 10 CVEs como TABELA: colunas com titulo -> CVE | Exploração global | Máquinas | Regras IPS.
+const _CVE_EXP={high:['Alta','crit'],medium:['Média','high'],low:['Baixa','med'],none:['Nenhuma','dim']};
+function renderCveTable(id, rows){
+  const el=document.getElementById(id); if(!el) return;
+  if(!Array.isArray(rows)||!rows.length){ setPanelState(id,'empty'); return; }
+  const top=rows.slice(0,10);
+  const max=Math.max(1, ...top.map(r=>Number(r.affectedAssets)||0));
+  const head='<div class="cvetbl-h"><span>CVE</span><span>Exploração global</span>'+
+    '<span class="th-r">Máquinas</span><span class="th-r">Regras IPS</span></div>';
+  const body=top.map((r,i)=>{
+    const maq=Number(r.affectedAssets)||0, cls=_vSev(r.level, maq);
+    const e=_CVE_EXP[String(r.exploit||'').toLowerCase()]||['n/d','dim'];
+    const n=Number(r.preventionRules)||0;
+    const prod=(r.product!=null&&r.product!=='')?'<small>'+_esc(r.product)+'</small>':'';
+    return '<div class="cverow">'+
+      '<div class="cvecve"><b class="rrk">'+(i+1)+'</b><b>'+_esc(r.cve!=null?r.cve:'—')+'</b>'+prod+'</div>'+
+      '<div class="cvexpl c-'+e[1]+'" title="Global exploit potential: '+_esc(r.exploit||'n/d')+'">⚡ '+e[0]+'</div>'+
+      '<div class="cvemaq"><b class="c-'+cls+'">'+maq.toLocaleString('pt-BR')+'</b>'+
+        '<div class="bar"><i class="bg-'+cls+'" style="width:'+Math.max(3,Math.round(maq/max*100))+'%"></i></div></div>'+
+      '<div class="cveips">'+(n>0?('<span class="c-ok" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+'</span>'):'<span class="c-dim">—</span>')+'</div>'+
+    '</div>';
+  }).join('');
+  el.innerHTML='<div class="cvetbl">'+head+'<div class="cvetbl-b">'+body+'</div></div>';
+}
 function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
-  const P=[
-    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;var pr=n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'';return _exploitChip(r.exploit)+pr;}}],
+  const _panel=(cid,live,rows,s,fn)=>{
+    if(Array.isArray(rows)&&rows.length){ fn(); _vLive(live,true); }
+    else if(s==='forbidden'){ setPanelState(cid,'forbidden','requer Cyber Risk Exposure Management'); _vLive(live,false); }
+    else if(s==='empty'||s==='ok'){ setPanelState(cid,'empty'); _vLive(live,false); }
+    else { setPanelState(cid,'unavailable'); _vLive(live,false); }
+  };
+  // Top 10 CVEs -> tabela (unica que tem impact score + exploit + regras IPS)
+  _panel('vCves','vCvesLive', v.topCves, st.topCves, ()=>renderCveTable('vCves', v.topCves));
+  [
     ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
-  ];
-  P.forEach(([key,cid,live,opt])=>{
-    const rows=v[key], s=st[key];
-    if(Array.isArray(rows)&&rows.length){ renderRankBars(cid,rows,opt); _vLive(live,true); }
-    else if(s==='forbidden'){ setPanelState(cid,'forbidden','requer Cyber Risk Exposure Management'); _vLive(live,false); }
-    else if(s==='empty'){ setPanelState(cid,'empty'); _vLive(live,false); }
-    else if(s==='ok'){ setPanelState(cid,'empty'); _vLive(live,false); }
-    else { setPanelState(cid,'unavailable'); _vLive(live,false); }
-  });
+  ].forEach(([key,cid,live,opt])=>{ _panel(cid,live,v[key],st[key],()=>renderRankBars(cid,v[key],opt)); });
   renderExploitSummary(v.exploitSummary, (st.exploitSummary));
 }
 
