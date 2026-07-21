@@ -439,6 +439,7 @@ body{
 .rmsg{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;font-size:13px;letter-spacing:.3px;text-align:center;color:var(--muted);padding:10px}
 .rbadge{font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:5px;margin-left:6px;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;flex-shrink:0}
 .rbadge.on{color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)}
+.rbadge.expl{border-color:currentColor;background:rgba(255,255,255,.04)}   /* Global exploit potential: borda/cor pela severidade */
 
 #map.screen{grid-template-columns:1fr 320px;grid-template-rows:minmax(0,1fr);gap:14px}
 #map .p-rankings{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
@@ -609,7 +610,7 @@ body{
           <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vcves">
-          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · ⚡ exploração global · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vservers">
@@ -1438,6 +1439,13 @@ function _vSev(level, val){
   if(l==='low') return 'low';
   return val>=1000?'high':(val>=100?'med':'low');
 }
+// Chip do Global exploit potential (globalExploitActivityLevel) — exibido junto ao impact score nos CVEs.
+function _exploitChip(level){
+  const l=String(level||'').toLowerCase();
+  const M={high:['Alta','crit'],medium:['Média','high'],low:['Baixa','med'],none:['Nenhuma','dim']};
+  const m=M[l]||['n/d','dim'];
+  return '<span class="rbadge expl c-'+m[1]+'" title="Global exploit potential: '+_esc(level||'n/d')+'">⚡ '+m[0]+'</span>';
+}
 function renderRankBars(id, rows, opt){
   const el=document.getElementById(id); if(!el) return;
   if(!Array.isArray(rows)||!rows.length){ setPanelState(id,'empty'); return; }
@@ -1493,7 +1501,7 @@ function applyVulnScreen(v){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
   const P=[
-    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;return n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'';}}],
+    ['topCves','vCves','vCvesLive',{labelKey:'cve',subKey:'product',valueKey:'affectedAssets',levelKey:'level',valueLabel:'MÁQUINAS',badgeFmt:function(r){var n=Number(r.preventionRules)||0;var pr=n>0?'<span class="rbadge on" title="Prevention Rules (virtual patching/IPS)">\u{1F6E1} '+n+' '+(n===1?'regra':'regras')+'</span>':'';return _exploitChip(r.exploit)+pr;}}],
     ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
