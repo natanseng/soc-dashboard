@@ -375,12 +375,44 @@ body{
 #soc .p-trend{grid-column:3;grid-row:1/4}
 #soc .p-ep{grid-column:2;grid-row:3}
 
-#vuln{grid-template-columns:repeat(2,1fr);grid-template-rows:auto 1fr 1fr}
-#vuln .p-vsummary{grid-column:1/3;grid-row:1}
-#vuln .p-vcves{grid-column:1;grid-row:2}
-#vuln .p-vservers{grid-column:2;grid-row:2}
-#vuln .p-vendpoints{grid-column:1;grid-row:3}
-#vuln .p-vapps{grid-column:2;grid-row:3}
+#vuln{grid-template-columns:1fr;grid-template-rows:1fr}          /* multi-tenant: dashpages empilhadas (como #exec) */
+/* Pagina "Detalhe por console" (1 tenant por vez): grade dos 5 paineis */
+.vdetgrid{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:auto 1fr 1fr;gap:14px;flex:1;min-height:0}
+.vdetgrid .p-vsummary{grid-column:1/3;grid-row:1}
+.vdetgrid .p-vcves{grid-column:1;grid-row:2}
+.vdetgrid .p-vservers{grid-column:2;grid-row:2}
+.vdetgrid .p-vendpoints{grid-column:1;grid-row:3}
+.vdetgrid .p-vapps{grid-column:2;grid-row:3}
+.vdet-h b{font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:.5px}
+.vdet-h span{color:var(--dim);font-weight:400;letter-spacing:.3px;margin-left:8px;font-size:11px}
+/* Pagina "Panorama por console": 4 cards de tenant */
+.vpan{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex:1;min-height:0}
+.vpcard{display:flex;flex-direction:column;gap:11px;min-height:0;position:relative;overflow:hidden;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:14px 15px}
+.vpcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
+.vpc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
+.vpc-cve{display:flex;flex-direction:column;line-height:1}
+.vpc-cve b{font-family:var(--display);font-weight:800;font-size:34px;color:var(--txt)}
+.vpc-cve span{font-size:9px;color:var(--dim);letter-spacing:.6px;margin-top:5px;text-transform:uppercase}
+.vpc-bar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.05)}
+.vpc-bar .seg{height:100%;transition:width 1s cubic-bezier(.2,.8,.2,1)}
+.vpc-leg{display:flex;gap:13px;flex-wrap:wrap}
+.vpc-leg .lg{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+.vpc-leg .lg i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.vpc-leg .lg b{font-family:var(--display);font-weight:800;font-size:12px}
+.vpc-metrics{display:flex;flex-direction:column;border-top:1px solid var(--line2);flex:1;min-height:0}
+.vpc-mrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11.5px}
+.vpc-mrow span{color:var(--muted)}
+.vpc-mrow b{font-family:var(--display);font-weight:700;font-size:13px}
+/* Pagina "Subindice SGGD" (risco por suborgao, ASRM — nao vuln) */
+#vpage-sub{overflow:auto}
+.vsub-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;flex-shrink:0}
+@media(max-width:1400px){ .vsub-cards{grid-template-columns:repeat(3,1fr)} }
+.vsub-card{display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:13px 14px;position:relative;overflow:hidden}
+.vsub-card::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#FFB020}
+.vsub-ri{font-family:var(--display);font-weight:800;font-size:30px;line-height:1}
+.vsub-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.vsub-note{font-size:11px;color:var(--dim);letter-spacing:.2px;padding:9px 2px 0;line-height:1.45}
 /* Faixa-resumo: total de CVEs + distribuicao por Global exploit potential */
 #vuln .p-vsummary{padding:11px 15px}
 #vuln .p-vsummary .phead{margin-bottom:7px}
@@ -428,8 +460,9 @@ body{
 
 @media (max-width:1100px){
   #soc{grid-template-columns:1fr 1fr}
-  #vuln{grid-template-columns:1fr;grid-template-rows:auto repeat(4,1fr)}
-  #vuln .p-vsummary{grid-column:1}
+  .vdetgrid{grid-template-columns:1fr;grid-template-rows:auto repeat(4,1fr)}
+  .vdetgrid .p-vsummary{grid-column:1}
+  .vpan{grid-template-columns:repeat(2,1fr)}
   #map.screen{grid-template-columns:1fr}
 }
 </style>
@@ -560,27 +593,45 @@ body{
     </div>
   </section>
 
-  <!-- ===================== VULNERABILIDADES ===================== -->
+  <!-- ===================== VULNERABILIDADES (multi-tenant) ===================== -->
   <section class="screen" id="vuln">
-    <div class="panel p-vsummary">
-      <div class="phead"><span class="ico"></span><h3>CVEs no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
-      <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
+    <!-- Pagina 1: Panorama por console (4 tenants lado a lado) -->
+    <div class="dashpage active" id="vpage-pan">
+      <div class="dashpagehead">Vulnerabilidades · Panorama por console <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">CVEs, exploração e cobertura · por tenant</span></div>
+      <div class="vpan" id="vpanCols"></div>
     </div>
-    <div class="panel p-vcves">
-      <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
-      <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
+    <!-- Pagina 2: Detalhe por console (rotativo, 1 tenant por vez) -->
+    <div class="dashpage" id="vpage-det">
+      <div class="dashpagehead vdet-h"><b id="vDetTenant">—</b><span id="vDetSub">Top vulnerabilidades</span></div>
+      <div class="vdetgrid">
+        <div class="panel p-vsummary">
+          <div class="phead"><span class="ico"></span><h3>CVEs no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
+          <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
+        </div>
+        <div class="panel p-vcves">
+          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">por impact score · barra: máquinas</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+          <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
+        </div>
+        <div class="panel p-vservers">
+          <div class="phead"><span class="ico"></span><h3>Top 10 Servidores</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vServersLive" style="display:none">● AO VIVO</span></div>
+          <div class="rlist" id="vServers"><div class="rmsg">Carregando…</div></div>
+        </div>
+        <div class="panel p-vendpoints">
+          <div class="phead"><span class="ico"></span><h3>Top 10 Endpoints</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vEndpointsLive" style="display:none">● AO VIVO</span></div>
+          <div class="rlist" id="vEndpoints"><div class="rmsg">Carregando…</div></div>
+        </div>
+        <div class="panel p-vapps">
+          <div class="phead"><span class="ico"></span><h3>Top 10 Aplicações</h3><span class="sub">indicadores de risco (≈CVEs)</span><span class="livetag" id="vAppsLive" style="display:none">● AO VIVO</span></div>
+          <div class="rlist" id="vApps"><div class="rmsg">Carregando…</div></div>
+        </div>
+      </div>
     </div>
-    <div class="panel p-vservers">
-      <div class="phead"><span class="ico"></span><h3>Top 10 Servidores</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vServersLive" style="display:none">● AO VIVO</span></div>
-      <div class="rlist" id="vServers"><div class="rmsg">Carregando…</div></div>
-    </div>
-    <div class="panel p-vendpoints">
-      <div class="phead"><span class="ico"></span><h3>Top 10 Endpoints</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vEndpointsLive" style="display:none">● AO VIVO</span></div>
-      <div class="rlist" id="vEndpoints"><div class="rmsg">Carregando…</div></div>
-    </div>
-    <div class="panel p-vapps">
-      <div class="phead"><span class="ico"></span><h3>Top 10 Aplicações</h3><span class="sub">indicadores de risco (≈CVEs)</span><span class="livetag" id="vAppsLive" style="display:none">● AO VIVO</span></div>
-      <div class="rlist" id="vApps"><div class="rmsg">Carregando…</div></div>
+    <!-- Pagina 3: Cyber Risk Subindex por suborgao (SGGD) -->
+    <div class="dashpage" id="vpage-sub">
+      <div class="dashpagehead">SGGD · Cyber Risk Subindex por subórgão <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">ASRM · risco de ativos (não é vulnerabilidade)</span></div>
+      <div id="vsubOrgBand"></div>
+      <div class="vsub-cards" id="vsubCards"><div class="rmsg">Carregando…</div></div>
+      <div class="vsub-note" id="vsubNote"></div>
     </div>
   </section>
 </main>
@@ -926,6 +977,7 @@ function go(i){
   const sc=document.getElementById(screens[cur]); sc.classList.add('active');
   navDots.children[cur].classList.add('on');
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
+  if(screens[cur]==='vuln'){ _vulnSlot=-1; showVulnSlot(0); pullVuln(); }   // Vulnerabilidades multi-tenant: comeca no Panorama
   if(screens[cur]==='map'){ loadCyber(); loadWaf(); }        // tela Cyber: dados reais /cyber/*
   if(screens[cur]==='alertas'){ loadAlertas(); }             // tela Alertas: dados reais /alerts/*
   animateCounts(sc); animateBars(sc);
@@ -938,6 +990,9 @@ function rotLoop(t){
     if(screens[cur]==='exec'){                        // Dashboard = N sub-páginas x 20s
       const np=document.querySelectorAll('#exec .dashpage').length||1;
       dur=np*20000; setDashPage(Math.floor(el/20000));
+    } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = Panorama + N detalhes + Subindice
+      const n=1+VULN_TENANTS.length+1;
+      dur=n*VULN_SLOT_MS; showVulnSlot(Math.floor(el/VULN_SLOT_MS));
     }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
     if(el>=dur)go(cur+1);
@@ -958,10 +1013,12 @@ function refreshData(){
   // dados REAIS: Dashboard multi-tenant (3 colunas) + demais telas (Prodesp)
   pullDashboard();
   loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dados reais, cache no servidor
+  pullVuln();         // Vulnerabilidades multi-tenant (Panorama + detalhe atual)
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
   if(act && act.id==='map'){ loadCyber(); loadWaf(); }   // atualiza a tela Cyber com dados reais
   if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
+  if(act && act.id==='vuln' && _vulnSlot>VULN_TENANTS.length) loadVulnSubindexes();   // atualiza subindice SGGD
 }
 
 /* ---------- Tela Cyber (§18): dados REAIS de /cyber/* ----------
@@ -1452,6 +1509,104 @@ function applyVulnScreen(v){
   renderExploitSummary(v.exploitSummary, (st.exploitSummary));
 }
 
+// ===== Vulnerabilidades multi-tenant (Panorama + Detalhe rotativo + Subindice SGGD) =====
+const VULN_TENANTS = [
+  {id:'prodesp-sp', name:'Prodesp', accent:'#E5202E'},
+  {id:'detran-sp',  name:'Detran',  accent:'#5B8DEF'},
+  {id:'iamspe-sp',  name:'Iamspe',  accent:'#27D98A'},
+  {id:'sggd',       name:'SGGD',    accent:'#FFB020'},
+];
+const VULN_SLOT_MS = 11000;          // dwell por slot (panorama + 4 detalhes + subindice = 6 slots)
+let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
+let _vulnSlot = -1;
+function _vpct(x){ return (x==null||x==='') ? '—' : (Math.round(Number(x)*10)/10).toLocaleString('pt-BR')+'%'; }
+function _vdays(x){ return (x==null||x==='') ? '—' : _nfp(Math.round(Number(x)))+' d'; }
+async function pullVuln(){
+  await Promise.all(VULN_TENANTS.map(async t=>{
+    try{
+      const r=await fetch(API_BASE+'/api/'+encodeURIComponent(t.id)+'/overview',{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json();
+      vulnData[t.id]={posture:d.posture||{}, vulnerabilities:d.vulnerabilities||{}};
+    }catch(e){ /* keep-last-good: conserva o vulnData[t.id] anterior (nao zera) */ }
+  }));
+  renderVulnPanorama();
+  const vs=document.getElementById('vuln');
+  if(vs&&vs.classList.contains('active')&&_vulnSlot>0&&_vulnSlot<=VULN_TENANTS.length)
+    renderVulnDetail(VULN_TENANTS[_vulnSlot-1]);   // re-renderiza o detalhe atual com dado fresco
+}
+function renderVulnPanorama(){
+  const wrap=document.getElementById('vpanCols'); if(!wrap) return;
+  const cls={high:'high',medium:'med',low:'low'}, lab={high:'Alto',medium:'Médio',low:'Baixo'}, keys=['high','medium','low'];
+  wrap.innerHTML = VULN_TENANTS.map(t=>{
+    const D=vulnData[t.id], p=(D&&D.posture)||{}, vv=p.vuln||{}, vr=(D&&D.vulnerabilities)||{}, es=vr.exploitSummary||{};
+    const cve=vv.count;
+    const ok = !!D && (cve!=null || p.risk_index!=null || es.total!=null);
+    const anyEx=keys.some(k=>es[k]!=null);
+    const tot=keys.reduce((a,k)=>a+(Number(es[k])||0),0);
+    const bar=anyEx?keys.map(k=>{ const val=es[k]; if(val==null) return '';
+        const w=tot?Number(val)/tot*100:0; return `<div class="seg bg-${cls[k]}" style="width:${w.toFixed(2)}%"></div>`; }).join(''):'';
+    const leg=keys.map(k=>`<span class="lg"><i style="background:var(--${cls[k]})"></i>${lab[k]} <b class="c-${cls[k]}">${_sv(es[k])}</b></span>`).join('');
+    return `<div class="vpcard" style="--tcol-accent:${t.accent}">`+
+      `<div class="vpc-head"><div class="tname">${_esc(t.name)}</div><div class="tlive${ok?'':' off'}">● ${ok?'AO VIVO':'SEM DADOS'}</div></div>`+
+      `<div class="vpc-cve"><b>${_sv(cve)}</b><span>CVEs no ambiente</span></div>`+
+      `<div style="font-size:9px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase">CVEs por potencial de exploração</div>`+
+      `<div class="vpc-bar">${bar}</div><div class="vpc-leg">${leg}</div>`+
+      `<div class="vpc-metrics">`+
+        `<div class="vpc-mrow"><span>Cobertura de avaliação</span><b>${_vpct(vv.coverage)}</b></div>`+
+        `<div class="vpc-mrow"><span>MTTP (correção)</span><b>${_vdays(vv.mttp)}</b></div>`+
+        `<div class="vpc-mrow"><span>Dias sem correção</span><b>${_vdays(vv.unpatched)}</b></div>`+
+        `<div class="vpc-mrow"><span>Endpoints vulneráveis</span><b>${_vpct(vv.vuln_rate)}</b></div>`+
+        `<div class="vpc-mrow"><span>SO legado</span><b>${_sv(vv.legacy_os)}</b></div>`+
+      `</div>`+
+    `</div>`;
+  }).join('');
+}
+function renderVulnDetail(t){
+  if(!t) return;
+  const lab=document.getElementById('vDetTenant'), sub=document.getElementById('vDetSub');
+  if(lab){ lab.textContent=t.name; lab.style.color=t.accent; }
+  const D=vulnData[t.id], vr=(D&&D.vulnerabilities)||{};
+  if(sub) sub.textContent = (vr&&Object.keys(vr).length) ? 'Top vulnerabilidades · '+t.name : 'sem dados de vulnerabilidade';
+  applyVulnScreen(vr);   // {} limpa os paineis p/ "indisponível" (nao mantem o tenant anterior)
+}
+async function loadVulnSubindexes(){
+  const band=document.getElementById('vsubOrgBand'), wrap=document.getElementById('vsubCards'), note=document.getElementById('vsubNote');
+  if(!band||!wrap) return;
+  let d=null, status='unavailable';
+  try{ const r=await fetch(API_BASE+'/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT),{cache:'no-store'}); d=await r.json(); status=d.status; }
+  catch(e){ status='unavailable'; }
+  if(!d || status!=='ok'){
+    band.innerHTML=`<div class="sub-msg">${status==='invalid'?'Tenant não configurado':'Dados indisponíveis'}</div>`;
+    wrap.innerHTML=''; if(note) note.textContent=''; return;
+  }
+  const groups=d.groups||[], org=groups.find(g=>g.isRoot)||{}, kids=groups.filter(g=>!g.isRoot);
+  band.innerHTML=renderOrgBand(org, d.surface);
+  if(!kids.length){ wrap.innerHTML='<div class="rmsg">Sem subórgãos configurados</div>'; }
+  else wrap.innerHTML=kids.map(g=>{
+    const ri=parseFloat(g.riskIndex), has=(g.riskIndex!=null)&&(ri>0 || +g.assetCount>0);
+    const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
+    return `<div class="vsub-card"><div class="tname">${_esc(g.name)}</div>`+
+      `<div class="vsub-ri c-${has?L.c:'dim'}">${has?(Math.round(ri*10)/10):'—'}</div>`+
+      `<div class="vsub-foot"><span class="tag c-${has?L.c:'dim'}">${has?(L.t+' risco'):'sem ativos'}</span>`+
+      `<span>${_sv(g.assetCount)} ativos</span></div></div>`;
+  }).join('');
+  if(note) note.textContent='Vulnerabilidade por subórgão não é exposta pela API do Vision One — depende de alocar os ativos aos asset groups no console. Hoje os subgrupos concentram os ativos no grupo raiz.';
+}
+function showVulnSlot(slot){
+  const n=1+VULN_TENANTS.length+1;                 // panorama + N detalhes + subindice SGGD
+  slot=((slot%n)+n)%n;
+  if(slot===_vulnSlot) return; _vulnSlot=slot;
+  const pan=document.getElementById('vpage-pan'), det=document.getElementById('vpage-det'), sub=document.getElementById('vpage-sub');
+  if(!pan||!det||!sub) return;
+  pan.classList.toggle('active', slot===0);
+  det.classList.toggle('active', slot>=1 && slot<=VULN_TENANTS.length);
+  sub.classList.toggle('active', slot>VULN_TENANTS.length);
+  if(slot>=1 && slot<=VULN_TENANTS.length) renderVulnDetail(VULN_TENANTS[slot-1]);
+  else if(slot>VULN_TENANTS.length) loadVulnSubindexes();
+  try{ Object.values(charts).forEach(c=>c.resize()); }catch(e){}
+}
+
 // ===== Dashboard multi-tenant (3 colunas: Prodesp | Detran | Iamspe) =====
 const DASH_TENANTS = [
   {id:'prodesp-sp', name:'Prodesp', accent:'#E5202E'},
@@ -1755,8 +1910,8 @@ async function pullDashboard(){
 
 function applyLive(d){
   if (!d) return;
-  // #exec (Dashboard) e multi-tenant -> renderizado por pullDashboard()/renderTenantColumn().
-  // Aqui: apenas telas de tenant unico (Prodesp) — SOC, Mapa, Vulnerabilidades.
+  // #exec (Dashboard) e #vuln (Vulnerabilidades) sao multi-tenant -> pullDashboard()/pullVuln().
+  // Aqui: apenas telas de tenant unico (Prodesp) — SOC e Mapa.
   applyMitre(d.mitre);
   applyFeed(d.feed);
   applyThreatDet(d);
@@ -1764,7 +1919,6 @@ function applyLive(d){
   applyIdentity(d.identity);
   applyIoc(d.ioc);
   applyEndpoint(d.endpoint);
-  applyVulnScreen(d.vulnerabilities);
 }
 
 async function pullLive(){
@@ -1797,7 +1951,7 @@ function connectWS(){
       else if (m.type === 'identity')   applyIdentity(m.data);
       else if (m.type === 'ioc')        applyIoc(m.data);
       else if (m.type === 'endpoint')   applyEndpoint(m.data);
-      else if (m.type === 'vulnerabilities') applyVulnScreen(m.data);
+      // 'vulnerabilities' (delta WS do tenant primario) IGNORADO: a tela Vuln e multi-tenant (pullVuln).
     }catch(e){}
   };
   ws.onclose = ()=> setTimeout(connectWS, 5000);
@@ -1808,6 +1962,7 @@ function initLive(){
   setTenantLabel();
   buildDashCols();   // monta as 3 colunas do Dashboard (Prodesp | Detran | Iamspe)
   pullDashboard();   // primeira carga multi-tenant (3 colunas)
+  pullVuln();        // Vulnerabilidades multi-tenant (4 tenants) — 1a carga do Panorama
   pullLive();        // demais telas (Prodesp) — 1a carga imediata
   connectWS();       // deltas ao vivo (Prodesp)
 }
