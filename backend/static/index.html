@@ -1499,8 +1499,9 @@ const _SUB_LVL = {low:{t:'Baixo',c:'low'},medium:{t:'Médio',c:'med'},high:{t:'A
 function renderOrgBand(org, s){
   s = s || {};
   const L=_SUB_LVL[String((org||{}).riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
-  const has=(+(org||{}).assetCount>0)&&(org.riskIndex!=null);
-  const v=has?(Math.round(org.riskIndex*10)/10):null;
+  const _ori=parseFloat((org||{}).riskIndex);
+  const has=((org||{}).riskIndex!=null)&&(_ori>0 || +(org||{}).assetCount>0);
+  const v=has?(Math.round(_ori*10)/10):null;
   return `<div class="sub-org-idx">`+
       `<div class="sub-org-h">Cyber Risk Index <span>Organização · ASRM</span></div>`+
       `<div class="sub-org-row"><div class="sub-org-val c-${has?L.c:'dim'}">${v==null?'—':v}</div>`+
@@ -1551,11 +1552,18 @@ async function loadSubindexes(){
     _subGaugeKeys=keys;
   }
   kids.forEach((g,i)=>{
-    const has=(+g.assetCount>0)&&(g.riskIndex!=null);   // sem ativos -> '—' (como o console V1)
-    _tGaugeSet('sub_'+i, has?parseFloat(g.riskIndex):null);
+    const ri=parseFloat(g.riskIndex);
+    // mostra o valor sempre que houver risco (>0) OU ativos (>0); só "—" quando genuinamente vazio
+    const has=(g.riskIndex!=null)&&(ri>0 || +g.assetCount>0);
+    _tGaugeSet('sub_'+i, has?ri:null);
     const meta=document.getElementById('submeta_'+i);
-    if(meta){ const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
-      meta.innerHTML=`<span class="tag c-${L.c}">${L.t} risco</span><span class="sub-assets">${_sv(g.assetCount)} ativos</span>`; }
+    if(meta){
+      if(has){ const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
+        meta.innerHTML=`<span class="tag c-${L.c}">${L.t} risco</span><span class="sub-assets">${_sv(g.assetCount)} ativos</span>`;
+      } else {
+        meta.innerHTML=`<span class="tag c-dim">sem ativos</span><span class="sub-assets">${_sv(g.assetCount)} ativos</span>`;
+      }
+    }
   });
 }
 /* ---------- Tela "Alertas" (workbenches consolidados) — dados reais /alerts/* ---------- */
