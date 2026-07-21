@@ -404,15 +404,6 @@ body{
 .vpc-mrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11.5px}
 .vpc-mrow span{color:var(--muted)}
 .vpc-mrow b{font-family:var(--display);font-weight:700;font-size:13px}
-/* Pagina "Subindice SGGD" (risco por suborgao, ASRM — nao vuln) */
-#vpage-sub{overflow:auto}
-.vsub-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;flex-shrink:0}
-@media(max-width:1400px){ .vsub-cards{grid-template-columns:repeat(3,1fr)} }
-.vsub-card{display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:13px 14px;position:relative;overflow:hidden}
-.vsub-card::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#FFB020}
-.vsub-ri{font-family:var(--display);font-weight:800;font-size:30px;line-height:1}
-.vsub-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
-.vsub-note{font-size:11px;color:var(--dim);letter-spacing:.2px;padding:9px 2px 0;line-height:1.45}
 /* Faixa-resumo: total de CVEs + distribuicao por Global exploit potential */
 #vuln .p-vsummary{padding:11px 15px}
 #vuln .p-vsummary .phead{margin-bottom:7px}
@@ -643,13 +634,6 @@ body{
           <div class="rlist" id="vApps"><div class="rmsg">Carregando…</div></div>
         </div>
       </div>
-    </div>
-    <!-- Pagina 3: Cyber Risk Subindex por suborgao (SGGD) -->
-    <div class="dashpage" id="vpage-sub">
-      <div class="dashpagehead">SGGD · Cyber Risk Subindex por subórgão <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">ASRM · risco de ativos (não é vulnerabilidade)</span></div>
-      <div id="vsubOrgBand"></div>
-      <div class="vsub-cards" id="vsubCards"><div class="rmsg">Carregando…</div></div>
-      <div class="vsub-note" id="vsubNote"></div>
     </div>
   </section>
 </main>
@@ -1008,8 +992,8 @@ function rotLoop(t){
     if(screens[cur]==='exec'){                        // Dashboard = N sub-páginas x 20s
       const np=document.querySelectorAll('#exec .dashpage').length||1;
       dur=np*20000; setDashPage(Math.floor(el/20000));
-    } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = Panorama + N detalhes + Subindice
-      const n=1+VULN_TENANTS.length+1;
+    } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = Panorama + N detalhes
+      const n=1+VULN_TENANTS.length;
       dur=n*VULN_SLOT_MS; showVulnSlot(Math.floor(el/VULN_SLOT_MS));
     }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
@@ -1036,7 +1020,6 @@ function refreshData(){
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
   if(act && act.id==='map'){ loadCyber(); loadWaf(); }   // atualiza a tela Cyber com dados reais
   if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
-  if(act && act.id==='vuln' && _vulnSlot>VULN_TENANTS.length) loadVulnSubindexes();   // atualiza subindice SGGD
 }
 
 /* ---------- Tela Cyber (§18): dados REAIS de /cyber/* ----------
@@ -1550,7 +1533,7 @@ function applyVulnScreen(v){
   renderExploitSummary(v.exploitSummary, (st.exploitSummary));
 }
 
-// ===== Vulnerabilidades multi-tenant (Panorama + Detalhe rotativo + Subindice SGGD) =====
+// ===== Vulnerabilidades multi-tenant (Panorama + Detalhe rotativo por console) =====
 const VULN_TENANTS = [
   {id:'prodesp-sp', name:'Prodesp', accent:'#E5202E'},
   {id:'detran-sp',  name:'Detran',  accent:'#5B8DEF'},
@@ -1611,40 +1594,15 @@ function renderVulnDetail(t){
   if(sub) sub.textContent = (vr&&Object.keys(vr).length) ? 'Top vulnerabilidades · '+t.name : 'sem dados de vulnerabilidade';
   applyVulnScreen(vr);   // {} limpa os paineis p/ "indisponível" (nao mantem o tenant anterior)
 }
-async function loadVulnSubindexes(){
-  const band=document.getElementById('vsubOrgBand'), wrap=document.getElementById('vsubCards'), note=document.getElementById('vsubNote');
-  if(!band||!wrap) return;
-  let d=null, status='unavailable';
-  try{ const r=await fetch(API_BASE+'/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT),{cache:'no-store'}); d=await r.json(); status=d.status; }
-  catch(e){ status='unavailable'; }
-  if(!d || status!=='ok'){
-    band.innerHTML=`<div class="sub-msg">${status==='invalid'?'Tenant não configurado':'Dados indisponíveis'}</div>`;
-    wrap.innerHTML=''; if(note) note.textContent=''; return;
-  }
-  const groups=d.groups||[], org=groups.find(g=>g.isRoot)||{}, kids=groups.filter(g=>!g.isRoot);
-  band.innerHTML=renderOrgBand(org, d.surface);
-  if(!kids.length){ wrap.innerHTML='<div class="rmsg">Sem subórgãos configurados</div>'; }
-  else wrap.innerHTML=kids.map(g=>{
-    const ri=parseFloat(g.riskIndex), has=(g.riskIndex!=null)&&(ri>0 || +g.assetCount>0);
-    const L=_SUB_LVL[String(g.riskLevel||'').toLowerCase()]||{t:'—',c:'dim'};
-    return `<div class="vsub-card"><div class="tname">${_esc(g.name)}</div>`+
-      `<div class="vsub-ri c-${has?L.c:'dim'}">${has?(Math.round(ri*10)/10):'—'}</div>`+
-      `<div class="vsub-foot"><span class="tag c-${has?L.c:'dim'}">${has?(L.t+' risco'):'sem ativos'}</span>`+
-      `<span>${_sv(g.assetCount)} ativos</span></div></div>`;
-  }).join('');
-  if(note) note.textContent='Vulnerabilidade por subórgão não é exposta pela API do Vision One — depende de alocar os ativos aos asset groups no console. Hoje os subgrupos concentram os ativos no grupo raiz.';
-}
 function showVulnSlot(slot){
-  const n=1+VULN_TENANTS.length+1;                 // panorama + N detalhes + subindice SGGD
+  const n=1+VULN_TENANTS.length;                   // panorama + N detalhes (1 tenant por vez)
   slot=((slot%n)+n)%n;
   if(slot===_vulnSlot) return; _vulnSlot=slot;
-  const pan=document.getElementById('vpage-pan'), det=document.getElementById('vpage-det'), sub=document.getElementById('vpage-sub');
-  if(!pan||!det||!sub) return;
+  const pan=document.getElementById('vpage-pan'), det=document.getElementById('vpage-det');
+  if(!pan||!det) return;
   pan.classList.toggle('active', slot===0);
-  det.classList.toggle('active', slot>=1 && slot<=VULN_TENANTS.length);
-  sub.classList.toggle('active', slot>VULN_TENANTS.length);
-  if(slot>=1 && slot<=VULN_TENANTS.length) renderVulnDetail(VULN_TENANTS[slot-1]);
-  else if(slot>VULN_TENANTS.length) loadVulnSubindexes();
+  det.classList.toggle('active', slot>=1);
+  if(slot>=1) renderVulnDetail(VULN_TENANTS[slot-1]);
   try{ Object.values(charts).forEach(c=>c.resize()); }catch(e){}
 }
 
