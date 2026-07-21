@@ -319,7 +319,12 @@ async def main():
         raise SystemExit("Defina V1_API_TOKEN em backend/.env antes de rodar o coletor.")
 
     v1 = VisionOneClient(settings.v1_api_token, settings.v1_api_base)
-    sched = AsyncIOScheduler()
+    # misfire_grace_time ALTO: com o loop congestionado (multi-tenant DASH + VULN pesados), um tick que
+    # dispara alguns segundos atrasado NAO pode ser descartado. O default do APScheduler e 1s -> jobs
+    # que caem no pico do minuto (ex.: tick_t1/posture do prodesp) chegavam 1-4s atrasados e eram
+    # PERPETUAMENTE pulados -> posture do prodesp zerava (SEM DADOS). Com grace amplo + coalesce, o tick
+    # atrasado ainda roda (uma vez). max_instances=1 evita overlap (o _guarded ja limita a duracao).
+    sched = AsyncIOScheduler(job_defaults={"misfire_grace_time": 55, "coalesce": True, "max_instances": 1})
     now = datetime.now()
 
     def _to(interval):
