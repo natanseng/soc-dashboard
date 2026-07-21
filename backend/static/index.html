@@ -424,10 +424,23 @@ body{
 /* Tela Vulnerabilidades: valor + unidade (ex.: "875 MÁQUINAS") em UMA linha */
 #vuln .rf-val{width:150px;white-space:nowrap;font-size:14px}          /* igual a tabela de CVEs */
 #vuln .rf-val small{display:inline;margin-top:0;margin-left:5px;font-size:9.5px}
-#vuln .rf-name{font-size:12.5px}                                     /* fonte do nome = tabela de CVEs */
-#vuln .rf-name small{font-size:10px}
+#vuln .rf-name{font-size:12.5px;line-height:1.15}                    /* fonte do nome = tabela de CVEs */
+#vuln .rf-name small{display:inline;margin-left:6px;font-size:10px}  /* SO na MESMA linha (compacto p/ TV) */
 #vuln .rf-track{height:5px;border-radius:3px}                        /* espessura = mini-barra da tabela de CVEs */
 #vuln .rf-fill{border-radius:3px}
+#vuln .rfrow{overflow:hidden;gap:10px}                               /* nunca sobrepoe (clip) + gap menor */
+/* --- Compactacao p/ caber na TV (viewport baixa): recupera altura e evita overlap --- */
+.vdetgrid{gap:9px}
+#vuln .panel{padding:9px 12px}
+#vuln .phead{margin-bottom:5px}
+#vuln .phead h3{font-size:12.5px;white-space:nowrap}
+#vuln .p-vsummary{padding:8px 14px}
+#vuln .vsum{gap:18px}
+#vuln .vsum-total b{font-size:22px}
+#vuln .cverow{overflow:hidden}
+#vuln .cvemaq{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+#vuln .cvemaq .bar{width:34px;flex-shrink:0;margin-top:0}
+#vuln .cvetbl-h{padding-bottom:3px}
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
 .rlist .rnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
