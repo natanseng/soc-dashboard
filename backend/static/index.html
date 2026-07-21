@@ -422,8 +422,12 @@ body{
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
 /* Tela Vulnerabilidades: valor + unidade (ex.: "875 MÁQUINAS") em UMA linha */
-#vuln .rf-val{width:150px;white-space:nowrap}
+#vuln .rf-val{width:150px;white-space:nowrap;font-size:14px}          /* igual a tabela de CVEs */
 #vuln .rf-val small{display:inline;margin-top:0;margin-left:5px;font-size:9.5px}
+#vuln .rf-name{font-size:12.5px}                                     /* fonte do nome = tabela de CVEs */
+#vuln .rf-name small{font-size:10px}
+#vuln .rf-track{height:5px;border-radius:3px}                        /* espessura = mini-barra da tabela de CVEs */
+#vuln .rf-fill{border-radius:3px}
 .rlist .rf-name{display:flex;align-items:center;gap:7px;min-width:0}
 .rlist .rnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rrk{font-family:var(--display);font-size:11px;color:var(--muted);min-width:16px;text-align:center;flex-shrink:0}
@@ -606,7 +610,7 @@ body{
   <section class="screen" id="vuln">
     <!-- Pagina 1: Panorama por console (4 tenants lado a lado) -->
     <div class="dashpage active" id="vpage-pan">
-      <div class="dashpagehead">Vulnerabilidades · Panorama por console <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">CVEs, exploração e cobertura · por tenant</span></div>
+      <div class="dashpagehead">Vulnerabilidades · Panorama por console <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">Vulnerabilidades, exploração e cobertura · por tenant</span></div>
       <div class="vpan" id="vpanCols"></div>
     </div>
     <!-- Pagina 2: Detalhe por console (rotativo, 1 tenant por vez) -->
@@ -614,23 +618,23 @@ body{
       <div class="dashpagehead vdet-h"><b id="vDetTenant">—</b><span id="vDetSub">Top vulnerabilidades</span></div>
       <div class="vdetgrid">
         <div class="panel p-vsummary">
-          <div class="phead"><span class="ico"></span><h3>CVEs no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Vulnerabilidades no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
           <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vcves">
-          <div class="phead"><span class="ico"></span><h3>Top 10 CVEs</h3><span class="sub">ranqueado por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 Vulnerabilidades</h3><span class="sub">ranqueado por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vCves"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vservers">
-          <div class="phead"><span class="ico"></span><h3>Top 10 Servidores</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vServersLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 Servidores</h3><span class="sub">por Vulnerabilidades distintas</span><span class="livetag" id="vServersLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vServers"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vendpoints">
-          <div class="phead"><span class="ico"></span><h3>Top 10 Endpoints</h3><span class="sub">por CVEs distintos</span><span class="livetag" id="vEndpointsLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 Endpoints</h3><span class="sub">por Vulnerabilidades distintas</span><span class="livetag" id="vEndpointsLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vEndpoints"><div class="rmsg">Carregando…</div></div>
         </div>
         <div class="panel p-vapps">
-          <div class="phead"><span class="ico"></span><h3>Top 10 Aplicações</h3><span class="sub">indicadores de risco (≈CVEs)</span><span class="livetag" id="vAppsLive" style="display:none">● AO VIVO</span></div>
+          <div class="phead"><span class="ico"></span><h3>Top 10 Aplicações</h3><span class="sub">indicadores de risco (≈Vulnerabilidades)</span><span class="livetag" id="vAppsLive" style="display:none">● AO VIVO</span></div>
           <div class="rlist" id="vApps"><div class="rmsg">Carregando…</div></div>
         </div>
       </div>
@@ -1486,7 +1490,7 @@ function renderExploitSummary(sum, status){
       const inner=(v==null)?'<b>—</b>'
         :`<b class="c-${cls[k]}">${nf(v)}</b>`+(denom?` <small>${fmtP(pctOf(Number(v)))}</small>`:'');
       return `<span class="lg"><i style="background:var(--${cls[k]})"></i>${label[k]} ${inner}</span>`; }).join('');
-  el.innerHTML=`<div class="vsum-total"><b>${total!=null?nf(total):'—'}</b><span>CVEs distintos</span></div>`+
+  el.innerHTML=`<div class="vsum-total"><b>${total!=null?nf(total):'—'}</b><span>Vulnerabilidades distintas</span></div>`+
     `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
   _vLive('vSummaryLive', total!=null);
 }
@@ -1497,7 +1501,7 @@ function renderCveTable(id, rows){
   if(!Array.isArray(rows)||!rows.length){ setPanelState(id,'empty'); return; }
   const top=rows.slice(0,10);
   const max=Math.max(1, ...top.map(r=>Number(r.affectedAssets)||0));
-  const head='<div class="cvetbl-h"><span>CVE</span><span>Exploração global</span>'+
+  const head='<div class="cvetbl-h"><span>Vulnerabilidade</span><span>Exploração global</span>'+
     '<span class="th-r">Máquinas</span><span class="th-r">Regras IPS</span></div>';
   const body=top.map((r,i)=>{
     const maq=Number(r.affectedAssets)||0, cls=_vSev(r.level, maq);
@@ -1526,9 +1530,9 @@ function applyVulnScreen(v){
   // Top 10 CVEs -> tabela (unica que tem impact score + exploit + regras IPS)
   _panel('vCves','vCvesLive', v.topCves, st.topCves, ()=>renderCveTable('vCves', v.topCves));
   [
-    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
-    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'CVEs'}],
-    ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈CVEs'}],
+    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades'}],
+    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades'}],
+    ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈Vulnerabilidades'}],
   ].forEach(([key,cid,live,opt])=>{ _panel(cid,live,v[key],st[key],()=>renderRankBars(cid,v[key],opt)); });
   renderExploitSummary(v.exploitSummary, (st.exploitSummary));
 }
@@ -1573,8 +1577,8 @@ function renderVulnPanorama(){
     const leg=keys.map(k=>`<span class="lg"><i style="background:var(--${cls[k]})"></i>${lab[k]} <b class="c-${cls[k]}">${_sv(es[k])}</b></span>`).join('');
     return `<div class="vpcard" style="--tcol-accent:${t.accent}">`+
       `<div class="vpc-head"><div class="tname">${_esc(t.name)}</div><div class="tlive${ok?'':' off'}">● ${ok?'AO VIVO':'SEM DADOS'}</div></div>`+
-      `<div class="vpc-cve"><b>${_sv(cve)}</b><span>CVEs no ambiente</span></div>`+
-      `<div style="font-size:9px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase">CVEs por potencial de exploração</div>`+
+      `<div class="vpc-cve"><b>${_sv(cve)}</b><span>Vulnerabilidades no ambiente</span></div>`+
+      `<div style="font-size:9px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase">Vulnerabilidades por potencial de exploração</div>`+
       `<div class="vpc-bar">${bar}</div><div class="vpc-leg">${leg}</div>`+
       `<div class="vpc-metrics">`+
         `<div class="vpc-mrow"><span>Cobertura de avaliação</span><b>${_vpct(vv.coverage)}</b></div>`+
