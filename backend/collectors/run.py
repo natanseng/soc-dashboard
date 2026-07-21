@@ -313,6 +313,42 @@ async def tick_dashboard(tenant: str, v1: VisionOneClient):
         log.warning("DASH[%s] events falhou: %s", tenant, exc)
 
 
+async def tick_soc(tenant: str, v1: VisionOneClient):
+    """SOC multi-tenant (tenants SECUNDARIOS): feed + mitre + trend + identity -> v1:{tenant}:*.
+
+    A tela Centro agrega os 4 tenants. O primario (prodesp) ja coleta esses tiers via t2/t3;
+    aqui coletamos para detran/iamspe/sggd. Cada tier faz varias chamadas OAT (mitre 14, trend 12,
+    identity 4, feed 1) -> por isso este job roda em cadencia LENTA (tier3=15min) e ESCALONADO,
+    para nao congestionar o event loop e nao reintroduzir o misfire do tick_t1. TTL folgado (40min)
+    p/ sobreviver ao intervalo longo + jitter. keep-last-good em mitre/identity (nao zera tatica)."""
+    try:
+        feed = await tiers.detections_feed(v1)
+        await r.set(f"v1:{tenant}:feed", json.dumps(feed), ex=2400)
+        log.info("SOC[%s] feed OK: %d detecções", tenant, len(feed))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SOC[%s] feed falhou: %s", tenant, tiers.diag(exc))
+    try:
+        mitre = await tiers.mitre_tactics(v1)
+        mitre = await _merge_keep(f"v1:{tenant}:mitre", mitre)
+        await r.set(f"v1:{tenant}:mitre", json.dumps(mitre), ex=2400)
+        log.info("SOC[%s] mitre OK: %d/%d táticas", tenant, sum(1 for x in mitre.values() if x), len(mitre))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SOC[%s] mitre falhou: %s", tenant, _diag(exc))
+    try:
+        trend = await tiers.threat_trend(v1)
+        await r.set(f"v1:{tenant}:trend", json.dumps(trend), ex=2400)
+        log.info("SOC[%s] trend OK: %d buckets", tenant, len(trend))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SOC[%s] trend falhou: %s", tenant, _diag(exc))
+    try:
+        ident = await tiers.identity_counts(v1)
+        ident = await _merge_keep(f"v1:{tenant}:identity", ident)
+        await r.set(f"v1:{tenant}:identity", json.dumps(ident), ex=2400)
+        log.info("SOC[%s] identity OK: %s", tenant, ident)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SOC[%s] identity falhou: %s", tenant, _diag(exc))
+
+
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not settings.v1_api_token or settings.v1_api_token.startswith("__"):
@@ -371,9 +407,15 @@ async def main():
     for _j, (_tid, _cli) in enumerate(_vuln_clients):
         sched.add_job(_guarded(tick_vuln, f"VULN[{_tid}]", _to(settings.tier4_interval)), "interval",
                       seconds=settings.tier4_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=24 + _j * 20))
+    # --- SOC (tela Centro) multi-tenant: feed/mitre/trend/identity dos SECUNDARIOS, LENTO (15min) e ESCALONADO ---
+    # ~31 chamadas OAT por tenant; cadencia longa + stagger de 120s evita congestionar o loop (protege o tick_t1).
+    _soc_secondary = [(t, c) for (t, c) in _vuln_clients if t != TENANT]
+    for _k, (_tid, _cli) in enumerate(_soc_secondary):
+        sched.add_job(_guarded(tick_soc, f"SOC[{_tid}]", _to(settings.tier3_interval)), "interval",
+                      seconds=settings.tier3_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=40 + _k * 120))
     sched.start()
-    log.info("Coletor iniciado | primario=%s | dashboard=%s | vuln=%s | T1=%ss T2=%ss T3=%ss T4=%ss",
-             TENANT, [t for t, _ in _secondary], [t for t, _ in _vuln_clients],
+    log.info("Coletor iniciado | primario=%s | dashboard=%s | vuln=%s | soc=%s | T1=%ss T2=%ss T3=%ss T4=%ss",
+             TENANT, [t for t, _ in _secondary], [t for t, _ in _vuln_clients], [t for t, _ in _soc_secondary],
              settings.tier1_interval, settings.tier2_interval, settings.tier3_interval, settings.tier4_interval)
     try:
         while True:

@@ -102,7 +102,12 @@ body{
 #soc .p-det .kpi .v{font-size:24px;line-height:1.1}
 #soc .p-det .kpi .l{font-size:10px;margin-top:4px;line-height:1.2}
 #soc .p-feed .feed{justify-content:space-between;gap:5px}
-#soc .p-feed .fitem{flex:1 1 0;min-height:0;padding:5px 10px}
+#soc .p-feed .fitem{flex:1 1 0;min-height:0;padding:5px 10px;overflow:hidden}
+#soc .p-feed .fitem .ds{overflow:hidden;min-width:0}
+#soc .p-feed .fitem .ds small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Live Detections: a lista "sobe" uma a uma (re-disparada a cada nova deteccao) */
+@keyframes socRise{from{transform:translateY(24px);opacity:.2}to{transform:translateY(0);opacity:1}}
+#soc .p-feed .feed.rise{animation:socRise .55s cubic-bezier(.2,.8,.2,1)}
 #soc .p-mitre .trow{flex:1 1 0;min-height:0;padding:0 10px;align-items:center}
 #soc .p-mitre .trow .tn{font-size:10.5px}
 #exec .p-vuln .list{gap:6px;min-height:0;height:100%}
@@ -368,12 +373,10 @@ body{
 .tfval{width:54px;text-align:right;font-family:var(--display);font-weight:800;font-size:12px;flex-shrink:0}
 @media (max-width:1100px){ .dashcols{grid-template-columns:1fr} }
 
-#soc{grid-template-columns:1fr 1.5fr 1fr;grid-template-rows:1fr 1.3fr 1fr}
-#soc .p-det{grid-column:1;grid-row:1}
-#soc .p-mitre{grid-column:2;grid-row:1/3}
-#soc .p-feed{grid-column:1;grid-row:2/4}
-#soc .p-trend{grid-column:3;grid-row:1/4}
-#soc .p-ep{grid-column:2;grid-row:3}
+#soc{grid-template-columns:1fr 1.2fr 1fr;grid-template-rows:1fr}   /* 3 cards: MITRE | Live Detections | Threat Trends */
+#soc .p-mitre{grid-column:1;grid-row:1}
+#soc .p-feed{grid-column:2;grid-row:1}
+#soc .p-trend{grid-column:3;grid-row:1}
 
 #vuln{grid-template-columns:1fr;grid-template-rows:1fr}          /* multi-tenant: dashpages empilhadas (como #exec) */
 /* Pagina "Detalhe por console" (1 tenant por vez): grade dos 5 paineis */
@@ -542,16 +545,6 @@ body{
 
   <!-- ===================== SOC OPERACIONAL ===================== -->
   <section class="screen" id="soc">
-    <div class="panel p-det">
-      <div class="phead"><span class="ico"></span><h3>Threat Detection</h3><span class="sub">Alertas + XDR</span><span class="livetag" id="tdLive" style="display:none">● AO VIVO</span></div>
-      <div class="kpis" style="grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;gap:8px;flex:1">
-        <div class="kpi"><div class="v c-crit" id="tdOpen">—</div><div class="l">Alertas ativos</div></div>
-        <div class="kpi"><div class="v" id="tdXdr">—</div><div class="l">Detecções XDR · 24h</div></div>
-        <div class="kpi"><div class="v c-high" id="tdCrit">—</div><div class="l">Alertas críticos</div></div>
-        <div class="kpi"><div class="v c-ok" id="td7d">—</div><div class="l">Detecções · 7d</div></div>
-      </div>
-    </div>
-
     <div class="panel p-mitre">
       <div class="phead"><span class="ico"></span><h3>MITRE ATT&CK</h3><span class="sub">detecções por tática · 24h</span><span class="livetag" id="mitreLive" style="display:none">● AO VIVO</span></div>
       <div class="mitre" id="mitreGrid"></div>
@@ -576,16 +569,6 @@ body{
       </div>
     </div>
 
-    <div class="panel p-ep">
-      <div class="phead"><span class="ico"></span><h3>Endpoint Security</h3><span class="sub" id="epSub">inventário</span></div>
-      <div class="statrow" style="grid-template-columns:repeat(5,1fr);margin-top:0;flex:1;align-items:center">
-        <div class="stat"><div class="n" id="epTotal">—</div><div class="l">Total</div></div>
-        <div class="stat"><div class="n c-ok" id="epEdrOn">—</div><div class="l">EDR Conect.</div></div>
-        <div class="stat"><div class="n c-high" id="epEdrOff">—</div><div class="l">EDR Desc.</div></div>
-        <div class="stat"><div class="n c-crit" id="epEppOff">—</div><div class="l">EPP Inativo</div></div>
-        <div class="stat"><div class="n c-med" id="epOutdated">—</div><div class="l">Desatualiz.</div></div>
-      </div>
-    </div>
   </section>
 
   <!-- ===================== CYBER ATTACK MAP ===================== -->
@@ -995,8 +978,10 @@ function go(i){
   document.querySelectorAll('.nav-dot').forEach(d=>d.classList.remove('on'));
   const sc=document.getElementById(screens[cur]); sc.classList.add('active');
   navDots.children[cur].classList.add('on');
+  stopSocFeed();                                             // pausa a animacao do feed ao trocar de tela
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
   if(screens[cur]==='vuln'){ _vulnSlot=-1; showVulnSlot(0); pullVuln(); }   // Vulnerabilidades multi-tenant: comeca no Panorama
+  if(screens[cur]==='soc'){ pullSoc(); }                     // Centro multi-tenant: agrega 4 tenants + Live Detections animado
   if(screens[cur]==='map'){ loadCyber(); loadWaf(); }        // tela Cyber: dados reais /cyber/*
   if(screens[cur]==='alertas'){ loadAlertas(); }             // tela Alertas: dados reais /alerts/*
   animateCounts(sc); animateBars(sc);
@@ -1037,6 +1022,7 @@ function refreshData(){
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
   if(act && act.id==='map'){ loadCyber(); loadWaf(); }   // atualiza a tela Cyber com dados reais
   if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
+  if(act && act.id==='soc') pullSoc();            // atualiza a tela Centro (multi-tenant) — pool do feed animado
 }
 
 /* ---------- Tela Cyber (§18): dados REAIS de /cyber/* ----------
@@ -1373,6 +1359,67 @@ function applyIdentity(d){
   set('idCred',  d.credDumping);
   set('idPriv',  d.privEsc);
   if (['bruteForce','validAccounts','credDumping','privEsc'].some(k=>d[k]!=null)){ const t=document.getElementById('idLive'); if(t) t.style.display=''; }
+}
+
+/* ===== Centro (SOC) MULTI-TENANT: agrega os 4 tenants (mitre/trend/identity/feed) + Live Detections animado ===== */
+// Usa VULN_TENANTS (prodesp/detran/iamspe/sggd) — referenciado dentro de pullSoc (runtime) p/ evitar TDZ.
+let _socPool=[], _socVis=[], _socIdx=0, _socTimer=null;
+const SOC_VIS=12, SOC_STEP_MS=2200;
+function _socFeedHTML(list){
+  return list.map(it=>{
+    const sev=_FEEDSEV[String(it.sev||'').toLowerCase()]||'info';
+    const tech=it.technique?(' · '+_esc(it.technique)):'';
+    const ten=it.tenant?(' · <span style="color:'+(it.accent||'var(--muted)')+';font-weight:700">'+_esc(it.tenant)+'</span>'):'';
+    return '<div class="fitem"><span class="dot-sev" style="background:var(--'+sev+')"></span>'+
+      '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(it.host||'—')+ten+tech+'</small></span>'+
+      '<span class="ts">'+_fmtTime(it.time)+'</span></div>';
+  }).join('');
+}
+function renderSocFeed(){
+  const feed=document.getElementById('socFeed'); if(!feed) return;
+  feed.innerHTML=_socFeedHTML(_socVis);
+  feed.classList.remove('rise'); void feed.offsetWidth; feed.classList.add('rise');   // re-dispara a "subida"
+  const rate=document.getElementById('feedRate'); if(rate) rate.textContent=(_socPool.length||0)+' detecções · ao vivo';
+  const tag=document.getElementById('feedLive'); if(tag) tag.style.display=_socPool.length?'':'none';
+}
+function _socNext(){ if(!_socPool.length) return null; const it=_socPool[_socIdx % _socPool.length]; _socIdx++; return it; }
+function socFeedTick(){
+  if(!_socPool.length) return;
+  const nx=_socNext(); if(nx) _socVis.push(nx);        // nova deteccao entra EMBAIXO
+  while(_socVis.length>SOC_VIS) _socVis.shift();       // as antigas SOBEM e saem pelo topo
+  renderSocFeed();
+}
+function startSocFeed(){
+  stopSocFeed();
+  _socVis=_socPool.slice(0, SOC_VIS);
+  _socIdx=Math.min(SOC_VIS, _socPool.length);
+  renderSocFeed();
+  if(_socPool.length) _socTimer=setInterval(socFeedTick, SOC_STEP_MS);   // roda enquanto a tela Centro estiver ativa
+}
+function stopSocFeed(){ if(_socTimer){ clearInterval(_socTimer); _socTimer=null; } }
+async function pullSoc(){
+  const per=await Promise.all(VULN_TENANTS.map(async t=>{
+    try{ const r=await fetch(API_BASE+'/api/'+encodeURIComponent(t.id)+'/overview',{cache:'no-store'}); if(!r.ok) throw 0;
+      return {t, d:await r.json()}; }catch(e){ return {t, d:null}; }
+  }));
+  // MITRE: soma por tatica (— se nenhum tenant tiver o dado)
+  const mAgg={}; let mAny=false;
+  MITRE_ORDER.forEach(ta=>{ let s=null; per.forEach(({d})=>{ const v=d&&d.mitre&&d.mitre[ta]; if(v!=null){ s=(s||0)+Number(v); mAny=true; } }); mAgg[ta]=s; });
+  if(mAny) applyMitre(mAgg);
+  // IDENTITY: soma por chave
+  const idAgg={}; let idAny=false;
+  ['bruteForce','validAccounts','credDumping','privEsc'].forEach(k=>{ let s=null; per.forEach(({d})=>{ const v=d&&d.identity&&d.identity[k]; if(v!=null){ s=(s||0)+Number(v); idAny=true; } }); idAgg[k]=s; });
+  if(idAny) applyIdentity(idAgg);
+  // TREND: soma por indice (buckets ~alinhados no tempo); rotulos do maior array
+  const trends=per.map(p=>(p.d&&Array.isArray(p.d.trend))?p.d.trend:null).filter(Boolean);
+  if(trends.length){ const base=trends.reduce((a,b)=>b.length>=a.length?b:a, trends[0]);
+    const tAgg=base.map((b,i)=>({t:b.t, n:trends.reduce((s,arr)=>s+((arr[i]&&arr[i].n!=null)?Number(arr[i].n):0),0)}));
+    applyTrend(tAgg); }
+  // FEED: merge de todos os tenants + ordena por horario desc + marca o tenant
+  const feed=[]; per.forEach(({t,d})=>{ if(d&&Array.isArray(d.feed)) d.feed.forEach(it=>feed.push(Object.assign({}, it, {tenant:t.name, accent:t.accent}))); });
+  feed.sort((a,b)=>String(b.time||'').localeCompare(String(a.time||'')));
+  _socPool=feed.slice(0,40);
+  if(screens[cur]==='soc' && !_socTimer) startSocFeed();   // 1a carga: inicia a animacao (refresh so atualiza o pool)
 }
 
 /* Cyber: Threat Intelligence (Objetos Suspeitos) */
@@ -1926,15 +1973,9 @@ async function pullDashboard(){
 
 function applyLive(d){
   if (!d) return;
-  // #exec (Dashboard) e #vuln (Vulnerabilidades) sao multi-tenant -> pullDashboard()/pullVuln().
-  // Aqui: apenas telas de tenant unico (Prodesp) — SOC e Mapa.
-  applyMitre(d.mitre);
-  applyFeed(d.feed);
-  applyThreatDet(d);
-  applyTrend(d.trend);
-  applyIdentity(d.identity);
+  // #exec (Dashboard), #vuln (Vulnerabilidades) e #soc (Centro) sao MULTI-TENANT
+  // -> pullDashboard()/pullVuln()/pullSoc(). Aqui fica so o Mapa (Cyber), que usa os IOCs do primario.
   applyIoc(d.ioc);
-  applyEndpoint(d.endpoint);
 }
 
 async function pullLive(){
@@ -1958,15 +1999,8 @@ function connectWS(){
   ws.onmessage = (ev)=>{
     try{
       const m = JSON.parse(ev.data);
-      if (m.type === 'posture')      { /* Dashboard multi-tenant atualiza via pullDashboard() */ }
-      else if (m.type === 'workbench') { applyThreatDet({workbench:m.data}); }
-      else if (m.type === 'events')    { applyThreatDet({events:m.data}); }
-      else if (m.type === 'mitre')      applyMitre(m.data);
-      else if (m.type === 'feed')       applyFeed(m.data);
-      else if (m.type === 'trend')      applyTrend(m.data);
-      else if (m.type === 'identity')   applyIdentity(m.data);
-      else if (m.type === 'ioc')        applyIoc(m.data);
-      else if (m.type === 'endpoint')   applyEndpoint(m.data);
+      // Dashboard/Centro/Vuln sao multi-tenant (pull*). Do WS do primario, so o Mapa (IOC) consome delta.
+      if (m.type === 'ioc')             applyIoc(m.data);
       // 'vulnerabilities' (delta WS do tenant primario) IGNORADO: a tela Vuln e multi-tenant (pullVuln).
     }catch(e){}
   };
