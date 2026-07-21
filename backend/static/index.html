@@ -101,13 +101,12 @@ body{
 #soc .p-det .kpi{display:flex;flex-direction:column;justify-content:center;padding:8px 12px}
 #soc .p-det .kpi .v{font-size:24px;line-height:1.1}
 #soc .p-det .kpi .l{font-size:10px;margin-top:4px;line-height:1.2}
-#soc .p-feed .feed{justify-content:space-between;gap:5px}
-#soc .p-feed .fitem{flex:1 1 0;min-height:0;padding:5px 10px;overflow:hidden}
+/* Live Detections: marquee que DESLIZA de baixo p/ cima (sem re-render, sem piscar) */
+#soc .p-feed .feed{display:block;flex:1;min-height:0;overflow:hidden;padding:0}   /* viewport que recorta o track */
+.feed-track{display:flex;flex-direction:column;will-change:transform}            /* coluna movida por translateY */
+#soc .p-feed .fitem{flex:none;box-sizing:border-box;min-height:0;padding:5px 10px;overflow:hidden}  /* altura fixa (via JS) */
 #soc .p-feed .fitem .ds{overflow:hidden;min-width:0}
 #soc .p-feed .fitem .ds small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Live Detections: a lista "sobe" uma a uma (re-disparada a cada nova deteccao) */
-@keyframes socRise{from{transform:translateY(24px);opacity:.2}to{transform:translateY(0);opacity:1}}
-#soc .p-feed .feed.rise{animation:socRise .55s cubic-bezier(.2,.8,.2,1)}
 #soc .p-mitre .trow{flex:1 1 0;min-height:0;padding:0 10px;align-items:center}
 #soc .p-mitre .trow .tn{font-size:10.5px}
 #exec .p-vuln .list{gap:6px;min-height:0;height:100%}
@@ -1363,38 +1362,45 @@ function applyIdentity(d){
 
 /* ===== Centro (SOC) MULTI-TENANT: agrega os 4 tenants (mitre/trend/identity/feed) + Live Detections animado ===== */
 // Usa VULN_TENANTS (prodesp/detran/iamspe/sggd) — referenciado dentro de pullSoc (runtime) p/ evitar TDZ.
-let _socPool=[], _socVis=[], _socIdx=0, _socTimer=null;
-const SOC_VIS=12, SOC_STEP_MS=2200;
-function _socFeedHTML(list){
-  return list.map(it=>{
-    const sev=_FEEDSEV[String(it.sev||'').toLowerCase()]||'info';
-    const tech=it.technique?(' · '+_esc(it.technique)):'';
-    const ten=it.tenant?(' · <span style="color:'+(it.accent||'var(--muted)')+';font-weight:700">'+_esc(it.tenant)+'</span>'):'';
-    return '<div class="fitem"><span class="dot-sev" style="background:var(--'+sev+')"></span>'+
-      '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(it.host||'—')+ten+tech+'</small></span>'+
-      '<span class="ts">'+_fmtTime(it.time)+'</span></div>';
-  }).join('');
+let _socPool=[], _socIdx=0, _socTimer=null, _socRowH=0, _socVisN=12;
+const SOC_STEP_MS=2600, SOC_SLIDE_MS=650, SOC_DESIRED_ROW=34;
+function _socFitem(it){
+  const el=document.createElement('div'); el.className='fitem'; el.style.height=_socRowH+'px';
+  const sev=_FEEDSEV[String(it.sev||'').toLowerCase()]||'info';
+  const tech=it.technique?(' · '+_esc(it.technique)):'';
+  const ten=it.tenant?(' · <span style="color:'+(it.accent||'var(--muted)')+';font-weight:700">'+_esc(it.tenant)+'</span>'):'';
+  el.innerHTML='<span class="dot-sev" style="background:var(--'+sev+')"></span>'+
+    '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(it.host||'—')+ten+tech+'</small></span>'+
+    '<span class="ts">'+_fmtTime(it.time)+'</span>';
+  return el;
 }
-function renderSocFeed(){
-  const feed=document.getElementById('socFeed'); if(!feed) return;
-  feed.innerHTML=_socFeedHTML(_socVis);
-  feed.classList.remove('rise'); void feed.offsetWidth; feed.classList.add('rise');   // re-dispara a "subida"
+function _socNext(){ if(!_socPool.length) return null; const it=_socPool[_socIdx % _socPool.length]; _socIdx++; return it; }
+function _socStatus(){
   const rate=document.getElementById('feedRate'); if(rate) rate.textContent=(_socPool.length||0)+' detecções · ao vivo';
   const tag=document.getElementById('feedLive'); if(tag) tag.style.display=_socPool.length?'':'none';
 }
-function _socNext(){ if(!_socPool.length) return null; const it=_socPool[_socIdx % _socPool.length]; _socIdx++; return it; }
 function socFeedTick(){
-  if(!_socPool.length) return;
-  const nx=_socNext(); if(nx) _socVis.push(nx);        // nova deteccao entra EMBAIXO
-  while(_socVis.length>SOC_VIS) _socVis.shift();       // as antigas SOBEM e saem pelo topo
-  renderSocFeed();
+  const track=document.getElementById('socTrack'); if(!track||!_socPool.length) return;
+  track.style.transition='transform '+SOC_SLIDE_MS+'ms cubic-bezier(.4,0,.2,1)';
+  track.style.transform='translateY(-'+_socRowH+'px)';                       // DESLIZA 1 linha p/ cima (suave)
+  setTimeout(function(){
+    if(track.firstElementChild) track.removeChild(track.firstElementChild);  // a do topo ja saiu de vista
+    const nx=_socNext(); if(nx) track.appendChild(_socFitem(nx));            // nova deteccao entra embaixo
+    track.style.transition='none'; track.style.transform='translateY(0)';    // reseta sem salto visivel
+    void track.offsetWidth;
+  }, SOC_SLIDE_MS);
 }
 function startSocFeed(){
   stopSocFeed();
-  _socVis=_socPool.slice(0, SOC_VIS);
-  _socIdx=Math.min(SOC_VIS, _socPool.length);
-  renderSocFeed();
-  if(_socPool.length) _socTimer=setInterval(socFeedTick, SOC_STEP_MS);   // roda enquanto a tela Centro estiver ativa
+  const feed=document.getElementById('socFeed'); if(!feed) return;
+  const h=feed.clientHeight||feed.getBoundingClientRect().height||360;
+  _socVisN=Math.max(4, Math.floor(h/SOC_DESIRED_ROW)); _socRowH=h/_socVisN;   // altura fixa de linha -> desliza certinho
+  _socIdx=0;
+  feed.innerHTML='<div class="feed-track" id="socTrack"></div>';
+  const track=document.getElementById('socTrack');
+  for(let i=0;i<_socVisN+1;i++){ const it=_socNext(); if(it) track.appendChild(_socFitem(it)); }  // +1 = a proxima, logo abaixo
+  _socStatus();
+  if(_socPool.length) _socTimer=setInterval(socFeedTick, SOC_STEP_MS);        // roda enquanto Centro estiver ativa
 }
 function stopSocFeed(){ if(_socTimer){ clearInterval(_socTimer); _socTimer=null; } }
 async function pullSoc(){
@@ -1419,6 +1425,7 @@ async function pullSoc(){
   const feed=[]; per.forEach(({t,d})=>{ if(d&&Array.isArray(d.feed)) d.feed.forEach(it=>feed.push(Object.assign({}, it, {tenant:t.name, accent:t.accent}))); });
   feed.sort((a,b)=>String(b.time||'').localeCompare(String(a.time||'')));
   _socPool=feed.slice(0,40);
+  _socStatus();
   if(screens[cur]==='soc' && !_socTimer) startSocFeed();   // 1a carga: inicia a animacao (refresh so atualiza o pool)
 }
 
