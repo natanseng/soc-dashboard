@@ -58,6 +58,54 @@ async def _merge_keep(key: str, fresh: dict) -> dict:
     return {k: (v if v is not None else prev.get(k)) for k, v in fresh.items()}
 
 
+async def _fetch_posture(v1: VisionOneClient, tenant: str, tries=(10.0, 12.0, 18.0)) -> dict:
+    """securityPosture com retry de timeout curto.
+
+    O securityPosture do V1 é intermitente em tenants grandes (ex.: prodesp, ~8,6k workbenches):
+    às vezes devolve HTTP 500 SÓ depois de 40-65s. Uma única chamada dessas estoura o guard do
+    tick (51s) e cancela tudo -> posture nunca é gravado -> após 30min de TTL o painel zera (SEM DADOS).
+    Como o 200 volta rápido (~1-2s), abortamos cada tentativa em `tries[i]`s e retentamos: o 500-lento
+    é cortado cedo e a retentativa costuma pegar o 200. O último timeout é mais folgado p/ acomodar um
+    200 legitimamente lento (cold ~17s). Mantém o dado FRESCO e REAL — nada é fabricado. Soma < guard."""
+    last: Exception | None = None
+    for i, per in enumerate(tries):
+        try:
+            return await asyncio.wait_for(tiers.security_posture(v1), per)
+        except asyncio.TimeoutError as exc:
+            last = exc
+            log.info("[%s] posture tentativa %d/%d excedeu %.0fs — retry", tenant, i + 1, len(tries), per)
+        except Exception as exc:  # noqa: BLE001  (500/erro rápido -> retenta já)
+            last = exc
+            log.info("[%s] posture tentativa %d/%d falhou (%s) — retry", tenant, i + 1, len(tries), _diag(exc))
+    raise last if last is not None else RuntimeError("posture sem tentativas")
+
+
+async def _store_posture(tenant: str, flat: dict) -> None:
+    """Grava a postura viva (TTL 30min -> alimenta 'AO VIVO') + cópia durável (last-known-good)."""
+    payload = json.dumps(flat)
+    await r.set(f"v1:{tenant}:posture", payload, ex=1800)
+    await r.set(f"v1:{tenant}:posture:lkg", payload)   # sem expiry: rede de segurança anti-branco
+
+
+async def _keep_posture(tenant: str) -> None:
+    """Falha transitória do securityPosture: mantém o painel vivo com o último valor REAL.
+
+    Renova o TTL se a chave viva existe; senão RESTAURA do LKG durável. Isso fecha o buraco do
+    cold-start: se o coletor sobe durante um 500-storm, a chave viva nunca existiu e o expire()
+    antigo era no-op -> o painel zerava (foi exatamente o que aconteceu). O LKG guarda a última
+    leitura boa (dado real), então o painel nunca fica em branco depois do 1o sucesso."""
+    try:
+        if await r.exists(f"v1:{tenant}:posture"):
+            await r.expire(f"v1:{tenant}:posture", 1800)
+        else:
+            lkg = await r.get(f"v1:{tenant}:posture:lkg")
+            if lkg:
+                await r.set(f"v1:{tenant}:posture", lkg, ex=1800)
+                log.info("[%s] posture restaurado do último valor bom (LKG) — V1 indisponível no momento", tenant)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def tick_t1(v1: VisionOneClient):
     """60s: contadores de Workbench + Risk Index/postura detalhada."""
     try:
@@ -74,11 +122,11 @@ async def tick_t1(v1: VisionOneClient):
         log.warning("T1 workbench falhou: %s", exc)
 
     try:
-        posture = await tiers.security_posture(v1)
+        posture = await _fetch_posture(v1, TENANT)   # retry c/ timeout curto p/ 500-intermitente
         flat = tiers.parse_posture(posture)
-        # JSON (não hash): agora carrega vuln/surface/factors aninhados.
-        # ex=1800 mantém o último valor bom durante 500s intermitentes do securityPosture.
-        await r.set(f"v1:{TENANT}:posture", json.dumps(flat), ex=1800)
+        # JSON (não hash): carrega vuln/surface/factors aninhados. _store_posture grava a chave viva
+        # (TTL 30min) + LKG durável -> sobrevive a 500-storm e a cold-start sem zerar o painel.
+        await _store_posture(TENANT, flat)
         await r.publish(f"ws:{TENANT}", json.dumps({"type": "posture", "data": flat}))
         log.info("T1 posture OK: riskIndex=%s exp=%s atk=%s cfg=%s cve=%s surf=%s fatores=%d agentes=%s",
                  flat["risk_index"], flat["exposure"], flat["attack"], flat["config"],
@@ -86,10 +134,7 @@ async def tick_t1(v1: VisionOneClient):
                  flat["adoption"].get("agents"))
     except Exception as exc:  # noqa: BLE001
         log.warning("T1 posture (ASRM/CREM) indisponível: %s", _diag(exc))
-        try:  # keep-last-good: renova o TTL do último valor bom p/ não zerar o painel numa falha transitória
-            await r.expire(f"v1:{TENANT}:posture", 1800)
-        except Exception:  # noqa: BLE001
-            pass
+        await _keep_posture(TENANT)   # renova TTL ou restaura do LKG durável (nunca zera)
 
 
 async def tick_t2(v1: VisionOneClient):
@@ -244,19 +289,16 @@ async def tick_dashboard(tenant: str, v1: VisionOneClient):
         log.warning("DASH[%s] workbench falhou: %s", tenant, exc)
 
     try:
-        posture = await tiers.security_posture(v1)
+        posture = await _fetch_posture(v1, tenant)   # retry c/ timeout curto p/ 500-intermitente
         flat = tiers.parse_posture(posture)
-        await r.set(f"v1:{tenant}:posture", json.dumps(flat), ex=1800)
+        await _store_posture(tenant, flat)            # chave viva (TTL 30min) + LKG durável
         await r.publish(f"ws:{tenant}", json.dumps({"type": "posture", "data": flat}))
         log.info("DASH[%s] posture OK: riskIndex=%s exp=%s atk=%s cfg=%s cve=%s",
                  tenant, flat["risk_index"], flat["exposure"], flat["attack"],
                  flat["config"], flat["cve_count"])
     except Exception as exc:  # noqa: BLE001
         log.warning("DASH[%s] posture (ASRM/CREM) indisponivel: %s", tenant, _diag(exc))
-        try:  # keep-last-good: renova o TTL do último valor bom (nao zera o painel do tenant)
-            await r.expire(f"v1:{tenant}:posture", 1800)
-        except Exception:  # noqa: BLE001
-            pass
+        await _keep_posture(tenant)   # renova TTL ou restaura do LKG durável (nunca zera)
 
     try:
         ev = await tiers.event_tallies(v1)
