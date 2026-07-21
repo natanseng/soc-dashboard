@@ -239,11 +239,14 @@ async def tick_t3(v1: VisionOneClient):
         log.warning("T3 endpoint falhou: %s", _diag(exc))
 
 
-async def tick_t4(v1: VisionOneClient):
-    """3600s: rankings de vulnerabilidade (tela Vulnerabilidades). Coleta pesada/lenta."""
+async def tick_vuln(tenant: str, v1: VisionOneClient):
+    """3600s POR TENANT: rankings de vulnerabilidade (tela Vulnerabilidades). Coleta pesada/lenta.
+
+    Multi-tenant: agendado para o primario (prodesp) E os secundarios (detran/iamspe/sggd),
+    cada um com seu cliente V1 -> escreve v1:{tenant}:vulnerabilities. Antes so o primario coletava."""
     try:
         vr = await tiers.vuln_rankings(v1)
-        key = f"v1:{TENANT}:vulnerabilities"
+        key = f"v1:{tenant}:vulnerabilities"
         try:
             prev_raw = await r.get(key)
             prev = json.loads(prev_raw) if prev_raw else {}
@@ -259,13 +262,13 @@ async def tick_t4(v1: VisionOneClient):
                 if es.get(_k) is None and esp.get(_k) is not None:
                     es[_k] = esp[_k]
         await r.set(key, json.dumps(vr), ex=7200)
-        await r.publish(f"ws:{TENANT}", json.dumps({"type": "vulnerabilities", "data": vr}))
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "vulnerabilities", "data": vr}))
         st = (vr.get("metadata") or {}).get("status", {})
-        log.info("T4 vulnerabilities OK: cves=%s servers=%s endpoints=%s apps=%s partial=%s",
+        log.info("VULN[%s] OK: cves=%s servers=%s endpoints=%s apps=%s partial=%s", tenant,
                  st.get("topCves"), st.get("topServers"), st.get("topEndpoints"),
                  st.get("topApplications"), (vr.get("metadata") or {}).get("partial"))
     except Exception as exc:  # noqa: BLE001
-        log.warning("T4 vulnerabilities falhou: %s", _diag(exc))
+        log.warning("VULN[%s] falhou: %s", tenant, _diag(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -342,24 +345,31 @@ async def main():
                   seconds=settings.tier2_interval, args=[v1], next_run_time=now + timedelta(seconds=8))
     sched.add_job(_guarded(tick_t3, "T3", _to(settings.tier3_interval)), "interval",
                   seconds=settings.tier3_interval, args=[v1], next_run_time=now + timedelta(seconds=16))
-    sched.add_job(_guarded(tick_t4, "T4", _to(settings.tier4_interval)), "interval",
-                  seconds=settings.tier4_interval, args=[v1], next_run_time=now + timedelta(seconds=24))
-    # --- Dashboard multi-tenant: tenants secundarios (so posture+workbench+eventos) ---
+    # --- Dashboard multi-tenant: tenants secundarios (posture+workbench+eventos) ---
+    # sggd entra aqui p/ ter posture (headline de vuln da tela Vulnerabilidades); NAO altera a tela
+    # Dashboard (que usa lista propria de 3 colunas no front).
     dash_clients = []
     _secondary = [("detran-sp", settings.v1_api_token_detran),
-                  ("iamspe-sp", settings.v1_api_token_iamspe)]
+                  ("iamspe-sp", settings.v1_api_token_iamspe),
+                  ("sggd", settings.v1_api_token_sggd)]
+    _vuln_clients = [(TENANT, v1)]   # coleta de vuln: primario + secundarios com token
     for _i, (_tid, _tok) in enumerate(_secondary):
         if not _tok:
             log.warning("Dashboard: token de %s ausente -> tenant pulado", _tid)
             continue
         _c = VisionOneClient(_tok, settings.v1_api_base)
         dash_clients.append(_c)
+        _vuln_clients.append((_tid, _c))
         sched.add_job(_guarded(tick_dashboard, f"DASH[{_tid}]", _to(settings.tier1_interval)), "interval",
                       seconds=settings.tier1_interval, args=[_tid, _c], next_run_time=now + timedelta(seconds=4 + _i * 2))
+    # --- Vulnerabilidades multi-tenant: rankings pesados por tenant, horario e ESCALONADO ---
+    for _j, (_tid, _cli) in enumerate(_vuln_clients):
+        sched.add_job(_guarded(tick_vuln, f"VULN[{_tid}]", _to(settings.tier4_interval)), "interval",
+                      seconds=settings.tier4_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=24 + _j * 20))
     sched.start()
-    log.info("Coletor iniciado | primario=%s | dashboard=%s | T1=%ss T2=%ss T3=%ss",
-             TENANT, [t for t, _ in _secondary], settings.tier1_interval,
-             settings.tier2_interval, settings.tier3_interval)
+    log.info("Coletor iniciado | primario=%s | dashboard=%s | vuln=%s | T1=%ss T2=%ss T3=%ss T4=%ss",
+             TENANT, [t for t, _ in _secondary], [t for t, _ in _vuln_clients],
+             settings.tier1_interval, settings.tier2_interval, settings.tier3_interval, settings.tier4_interval)
     try:
         while True:
             await asyncio.sleep(3600)
