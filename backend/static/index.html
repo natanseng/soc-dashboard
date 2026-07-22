@@ -387,25 +387,6 @@ body{
 .vdetgrid .p-vapps{grid-column:2;grid-row:3}
 .vdet-h b{font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:.5px}
 .vdet-h span{color:var(--dim);font-weight:400;letter-spacing:.3px;margin-left:8px;font-size:11px}
-/* Pagina "Panorama por console": 4 cards de tenant */
-.vpan{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex:1;min-height:0}
-.vpcard{display:flex;flex-direction:column;gap:11px;min-height:0;position:relative;overflow:hidden;
-  background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:14px 15px}
-.vpcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
-.vpc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
-.vpc-cve{display:flex;flex-direction:column;line-height:1}
-.vpc-cve b{font-family:var(--display);font-weight:800;font-size:34px;color:var(--txt)}
-.vpc-cve span{font-size:9px;color:var(--dim);letter-spacing:.6px;margin-top:5px;text-transform:uppercase}
-.vpc-bar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.05)}
-.vpc-bar .seg{height:100%;transition:width 1s cubic-bezier(.2,.8,.2,1)}
-.vpc-leg{display:flex;gap:13px;flex-wrap:wrap}
-.vpc-leg .lg{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
-.vpc-leg .lg i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
-.vpc-leg .lg b{font-family:var(--display);font-weight:800;font-size:12px}
-.vpc-metrics{display:flex;flex-direction:column;border-top:1px solid var(--line2);flex:1;min-height:0}
-.vpc-mrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11.5px}
-.vpc-mrow span{color:var(--muted)}
-.vpc-mrow b{font-family:var(--display);font-weight:700;font-size:13px}
 /* Faixa-resumo: total de CVEs + distribuicao por Global exploit potential */
 #vuln .p-vsummary{padding:11px 15px}
 #vuln .p-vsummary .phead{margin-bottom:7px}
@@ -490,7 +471,6 @@ body{
   #soc{grid-template-columns:1fr 1fr}
   .vdetgrid{grid-template-columns:1fr;grid-template-rows:auto repeat(4,1fr)}
   .vdetgrid .p-vsummary{grid-column:1}
-  .vpan{grid-template-columns:repeat(2,1fr)}
   #map.screen{grid-template-columns:1fr}
 }
 </style>
@@ -603,13 +583,8 @@ body{
 
   <!-- ===================== VULNERABILIDADES (multi-tenant) ===================== -->
   <section class="screen" id="vuln">
-    <!-- Pagina 1: Panorama por console (4 tenants lado a lado) -->
-    <div class="dashpage active" id="vpage-pan">
-      <div class="dashpagehead">Vulnerabilidades · Panorama por console <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:.2px">Vulnerabilidades, exploração e cobertura · por tenant</span></div>
-      <div class="vpan" id="vpanCols"></div>
-    </div>
-    <!-- Pagina 2: Detalhe por console (rotativo, 1 tenant por vez) -->
-    <div class="dashpage" id="vpage-det">
+    <!-- Detalhe por console (rotativo, 1 tenant por vez) — Panorama removido do loop -->
+    <div class="dashpage active" id="vpage-det">
       <div class="dashpagehead vdet-h"><b id="vDetTenant">—</b><span id="vDetSub">Top vulnerabilidades</span></div>
       <div class="vdetgrid">
         <div class="panel p-vsummary">
@@ -993,8 +968,8 @@ function rotLoop(t){
     if(screens[cur]==='exec'){                        // Dashboard = N sub-páginas x 20s
       const np=document.querySelectorAll('#exec .dashpage').length||1;
       dur=np*20000; setDashPage(Math.floor(el/20000));
-    } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = Panorama + N detalhes
-      const n=1+VULN_TENANTS.length;
+    } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = detalhe rotativo por tenant (sem Panorama)
+      const n=VULN_TENANTS.length;
       dur=n*VULN_SLOT_MS; showVulnSlot(Math.floor(el/VULN_SLOT_MS));
     }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
@@ -1614,8 +1589,6 @@ const VULN_TENANTS = [
 const VULN_SLOT_MS = 11000;          // dwell por slot (panorama + 4 detalhes + subindice = 6 slots)
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
 let _vulnSlot = -1;
-function _vpct(x){ return (x==null||x==='') ? '—' : (Math.round(Number(x)*10)/10).toLocaleString('pt-BR')+'%'; }
-function _vdays(x){ return (x==null||x==='') ? '—' : _nfp(Math.round(Number(x)))+' d'; }
 async function pullVuln(){
   await Promise.all(VULN_TENANTS.map(async t=>{
     try{
@@ -1625,37 +1598,9 @@ async function pullVuln(){
       vulnData[t.id]={posture:d.posture||{}, vulnerabilities:d.vulnerabilities||{}};
     }catch(e){ /* keep-last-good: conserva o vulnData[t.id] anterior (nao zera) */ }
   }));
-  renderVulnPanorama();
   const vs=document.getElementById('vuln');
-  if(vs&&vs.classList.contains('active')&&_vulnSlot>0&&_vulnSlot<=VULN_TENANTS.length)
-    renderVulnDetail(VULN_TENANTS[_vulnSlot-1]);   // re-renderiza o detalhe atual com dado fresco
-}
-function renderVulnPanorama(){
-  const wrap=document.getElementById('vpanCols'); if(!wrap) return;
-  const cls={high:'high',medium:'med',low:'low'}, lab={high:'Alto',medium:'Médio',low:'Baixo'}, keys=['high','medium','low'];
-  wrap.innerHTML = VULN_TENANTS.map(t=>{
-    const D=vulnData[t.id], p=(D&&D.posture)||{}, vv=p.vuln||{}, vr=(D&&D.vulnerabilities)||{}, es=vr.exploitSummary||{};
-    const cve=vv.count;
-    const ok = !!D && (cve!=null || p.risk_index!=null || es.total!=null);
-    const anyEx=keys.some(k=>es[k]!=null);
-    const tot=keys.reduce((a,k)=>a+(Number(es[k])||0),0);
-    const bar=anyEx?keys.map(k=>{ const val=es[k]; if(val==null) return '';
-        const w=tot?Number(val)/tot*100:0; return `<div class="seg bg-${cls[k]}" style="width:${w.toFixed(2)}%"></div>`; }).join(''):'';
-    const leg=keys.map(k=>`<span class="lg"><i style="background:var(--${cls[k]})"></i>${lab[k]} <b class="c-${cls[k]}">${_sv(es[k])}</b></span>`).join('');
-    return `<div class="vpcard" style="--tcol-accent:${t.accent}">`+
-      `<div class="vpc-head"><div class="tname">${_esc(t.name)}</div><div class="tlive${ok?'':' off'}">● ${ok?'AO VIVO':'SEM DADOS'}</div></div>`+
-      `<div class="vpc-cve"><b>${_sv(cve)}</b><span>Vulnerabilidades no ambiente</span></div>`+
-      `<div style="font-size:9px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase">Vulnerabilidades por potencial de exploração</div>`+
-      `<div class="vpc-bar">${bar}</div><div class="vpc-leg">${leg}</div>`+
-      `<div class="vpc-metrics">`+
-        `<div class="vpc-mrow"><span>Cobertura de avaliação</span><b>${_vpct(vv.coverage)}</b></div>`+
-        `<div class="vpc-mrow"><span>MTTP (correção)</span><b>${_vdays(vv.mttp)}</b></div>`+
-        `<div class="vpc-mrow"><span>Dias sem correção</span><b>${_vdays(vv.unpatched)}</b></div>`+
-        `<div class="vpc-mrow"><span>Endpoints vulneráveis</span><b>${_vpct(vv.vuln_rate)}</b></div>`+
-        `<div class="vpc-mrow"><span>SO legado</span><b>${_sv(vv.legacy_os)}</b></div>`+
-      `</div>`+
-    `</div>`;
-  }).join('');
+  if(vs&&vs.classList.contains('active')&&_vulnSlot>=0&&_vulnSlot<VULN_TENANTS.length)
+    renderVulnDetail(VULN_TENANTS[_vulnSlot]);   // re-renderiza o detalhe atual com dado fresco
 }
 function renderVulnDetail(t){
   if(!t) return;
@@ -1666,14 +1611,12 @@ function renderVulnDetail(t){
   applyVulnScreen(vr);   // {} limpa os paineis p/ "indisponível" (nao mantem o tenant anterior)
 }
 function showVulnSlot(slot){
-  const n=1+VULN_TENANTS.length;                   // panorama + N detalhes (1 tenant por vez)
+  const n=VULN_TENANTS.length;                      // so o Detalhe rotativo (1 tenant por vez) — Panorama removido
   slot=((slot%n)+n)%n;
   if(slot===_vulnSlot) return; _vulnSlot=slot;
-  const pan=document.getElementById('vpage-pan'), det=document.getElementById('vpage-det');
-  if(!pan||!det) return;
-  pan.classList.toggle('active', slot===0);
-  det.classList.toggle('active', slot>=1);
-  if(slot>=1) renderVulnDetail(VULN_TENANTS[slot-1]);
+  const det=document.getElementById('vpage-det'); if(!det) return;
+  det.classList.add('active');
+  renderVulnDetail(VULN_TENANTS[slot]);
   try{ Object.values(charts).forEach(c=>c.resize()); }catch(e){}
 }
 
