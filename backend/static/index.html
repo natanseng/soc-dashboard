@@ -971,9 +971,10 @@ function rotLoop(t){
     } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = detalhe rotativo por tenant (sem Panorama)
       const n=VULN_TENANTS.length;
       dur=n*VULN_SLOT_MS; showVulnSlot(Math.floor(el/VULN_SLOT_MS));
-    } else if(screens[cur]==='alertas'){              // Alertas = N paginas de 6 cards, rotativas
+    } else if(screens[cur]==='alertas'){              // Alertas = N paginas de 6 cards, cada uma 10s
       const tot=_alTotalPages();
-      dur=tot*AL_PAGE_MS; showAlPage(Math.floor(el/AL_PAGE_MS));
+      dur = _alCards.length ? tot*AL_PAGE_MS : 60000;   // nao avanca enquanto os cards ainda carregam
+      showAlPage(Math.floor(el/AL_PAGE_MS));
     }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
     if(el>=dur)go(cur+1);
@@ -1593,7 +1594,7 @@ const VULN_TENANTS = [
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
 ];
-const VULN_SLOT_MS = 11000;          // dwell por slot (panorama + 4 detalhes + subindice = 6 slots)
+const VULN_SLOT_MS = 10000;          // 10s por pagina (1 tenant por vez); dwell da tela = nº tenants x 10s
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
 let _vulnSlot = -1;
 async function pullVuln(){
@@ -1820,7 +1821,7 @@ function _alCard(o){
 }
 // Paginacao dos cards de Alertas: 6 por pagina, rotacionando enquanto a tela Alertas estiver ativa.
 let _alCards=[], _alPage=0;
-const AL_PER_PAGE=6, AL_PAGE_MS=12000;
+const AL_PER_PAGE=6, AL_PAGE_MS=10000;   // 10s por pagina; dwell da tela = nº paginas x 10s
 function _alTotalPages(){ return Math.max(1, Math.ceil(_alCards.length/AL_PER_PAGE)); }
 function _renderAlPage(){
   const el=document.getElementById('alUnits'); if(!el) return;
