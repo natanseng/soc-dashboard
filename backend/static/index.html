@@ -504,7 +504,7 @@ body{
 
   <!-- ===================== EXECUTIVO ===================== -->
   <section class="screen active" id="exec">
-    <div class="dashpage active" id="dpage-0"><div class="dashcols" id="dashCols-0"></div></div>
+    <!-- paginas de consoles (paginadas por buildDashCols, 4 por pagina) injetadas AQUI, antes do subindice -->
     <div class="dashpage" id="dpage-1">
       <div class="dashpagehead">Cyber Risk Subindexes</div>
       <div class="sub-org" id="subOrgBand"></div>
@@ -1581,10 +1581,14 @@ function applyVulnScreen(v){
 
 // ===== Vulnerabilidades multi-tenant (Panorama + Detalhe rotativo por console) =====
 const VULN_TENANTS = [
-  {id:'prodesp-sp', name:'Prodesp', accent:'#E5202E'},
-  {id:'detran-sp',  name:'Detran',  accent:'#5B8DEF'},
-  {id:'iamspe-sp',  name:'Iamspe',  accent:'#27D98A'},
-  {id:'sggd',       name:'SGGD',    accent:'#FFB020'},
+  {id:'prodesp-sp', name:'Prodesp',    accent:'#E5202E'},
+  {id:'detran-sp',  name:'Detran',     accent:'#5B8DEF'},
+  {id:'iamspe-sp',  name:'Iamspe',     accent:'#27D98A'},
+  {id:'sggd',       name:'SGGD',       accent:'#FFB020'},
+  {id:'poupatempo', name:'Poupatempo', accent:'#A855F7'},
+  {id:'spi',        name:'SPI',        accent:'#22D3EE'},
+  {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
+  {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
 ];
 const VULN_SLOT_MS = 11000;          // dwell por slot (panorama + 4 detalhes + subindice = 6 slots)
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
@@ -1620,11 +1624,15 @@ function showVulnSlot(slot){
   try{ Object.values(charts).forEach(c=>c.resize()); }catch(e){}
 }
 
-// ===== Dashboard multi-tenant (3 colunas: Prodesp | Detran | Iamspe) =====
+// ===== Dashboard multi-tenant (consoles, paginado 4 por pagina) =====
 const DASH_TENANTS = [
-  {id:'prodesp-sp', name:'Prodesp', accent:'#E5202E'},
-  {id:'detran-sp',  name:'Detran',  accent:'#5B8DEF'},
-  {id:'iamspe-sp',  name:'Iamspe',  accent:'#27D98A'},
+  {id:'prodesp-sp', name:'Prodesp',    accent:'#E5202E'},
+  {id:'detran-sp',  name:'Detran',     accent:'#5B8DEF'},
+  {id:'iamspe-sp',  name:'Iamspe',     accent:'#27D98A'},
+  {id:'poupatempo', name:'Poupatempo', accent:'#A855F7'},
+  {id:'spi',        name:'SPI',        accent:'#22D3EE'},
+  {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
+  {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
 ];
 function _riCls(v){ return v<30?'low':(v<70?'med':'crit'); }
 function _nfp(v){ return Number(v||0).toLocaleString('pt-BR'); }
@@ -1737,7 +1745,8 @@ async function loadSubindexes(){
 /* ---------- Tela "Alertas" (workbenches consolidados) — dados reais /alerts/* ---------- */
 const _SEVCLS={critical:'crit',high:'high',medium:'med',low:'low',info:'info'};
 const _SEVORD=['critical','high','medium','low','info'];
-const _AL_ACCENT={'prodesp-sp':'#E5202E','detran-sp':'#5B8DEF','iamspe-sp':'#27D98A','sggd':'#FFB020'};
+const _AL_ACCENT={'prodesp-sp':'#E5202E','detran-sp':'#5B8DEF','iamspe-sp':'#27D98A','sggd':'#FFB020',
+  'poupatempo':'#A855F7','spi':'#22D3EE','alesp':'#F472B6','cptm':'#FB923C'};
 let _alTenantNames={};
 function _alNum(v){ return (v==null)?'—':Number(v).toLocaleString('pt-BR'); }
 function _prettyTenant(t){ return _alTenantNames[t]||t; }
@@ -1858,12 +1867,20 @@ async function loadAlertas(){
   }catch(e){ /* silencioso; painéis mostram indisponível */ }
   finally{ _alBusy=false; }
 }
+const DASH_PAGE_SZ=4;   // consoles por pagina do Dashboard (paginado p/ caber com altura cheia na TV)
 function buildDashCols(){
-  const w0=document.getElementById('dashCols-0');
-  if(w0){
-    w0.innerHTML = DASH_TENANTS.map(tenantColSkeleton).join('');
-    DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
+  const exec=document.getElementById('exec'), sub=document.getElementById('dpage-1');
+  if(!exec||!sub) return;
+  exec.querySelectorAll('.dashpage.tpage').forEach(p=>p.remove());   // limpa paginas de console antigas
+  for(let i=0;i<DASH_TENANTS.length;i+=DASH_PAGE_SZ){
+    const chunk=DASH_TENANTS.slice(i,i+DASH_PAGE_SZ);
+    const pg=document.createElement('div');
+    pg.className='dashpage tpage'+(i===0?' active':'');
+    pg.innerHTML='<div class="dashcols" style="grid-template-columns:repeat('+chunk.length+',1fr)">'+
+      chunk.map(tenantColSkeleton).join('')+'</div>';
+    exec.insertBefore(pg, sub);   // antes da pagina de subindices
   }
+  DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
   loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dinâmico, dados reais /cyber/asset-groups
 }
 function _mtSevRows(wb){
