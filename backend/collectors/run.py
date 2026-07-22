@@ -392,7 +392,11 @@ async def main():
     dash_clients = []
     _secondary = [("detran-sp", settings.v1_api_token_detran),
                   ("iamspe-sp", settings.v1_api_token_iamspe),
-                  ("sggd", settings.v1_api_token_sggd)]
+                  ("sggd", settings.v1_api_token_sggd),
+                  ("poupatempo", settings.v1_api_token_poupatempo),
+                  ("spi", settings.v1_api_token_spi),
+                  ("alesp", settings.v1_api_token_alesp),
+                  ("cptm", settings.v1_api_token_cptm)]
     _vuln_clients = [(TENANT, v1)]   # coleta de vuln: primario + secundarios com token
     for _i, (_tid, _tok) in enumerate(_secondary):
         if not _tok:
@@ -401,8 +405,10 @@ async def main():
         _c = VisionOneClient(_tok, settings.v1_api_base)
         dash_clients.append(_c)
         _vuln_clients.append((_tid, _c))
+        # stagger ESPALHADO ao longo do minuto (2..~46s): com 7 secundarios, concentrar as chamadas
+        # no mesmo instante atrasaria o tick_t1 do prodesp (misfire). Espalhar reduz o pico do loop.
         sched.add_job(_guarded(tick_dashboard, f"DASH[{_tid}]", _to(settings.tier1_interval)), "interval",
-                      seconds=settings.tier1_interval, args=[_tid, _c], next_run_time=now + timedelta(seconds=4 + _i * 2))
+                      seconds=settings.tier1_interval, args=[_tid, _c], next_run_time=now + timedelta(seconds=2 + _i * 7))
     # --- Vulnerabilidades multi-tenant: rankings pesados por tenant, horario e ESCALONADO ---
     for _j, (_tid, _cli) in enumerate(_vuln_clients):
         sched.add_job(_guarded(tick_vuln, f"VULN[{_tid}]", _to(settings.tier4_interval)), "interval",

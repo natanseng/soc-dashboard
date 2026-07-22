@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     v1_api_token_iamspe: str = ""
     # Console SGGD — Cyber Risk Subindexes (SGGD/PGE/CGE/SPPREV/SGRI) por tag
     v1_api_token_sggd: str = ""
+    # Tenants adicionais (2026-07-21): Poupatempo, SPI, Alesp, CPTM
+    v1_api_token_poupatempo: str = ""
+    v1_api_token_spi: str = ""
+    v1_api_token_alesp: str = ""
+    v1_api_token_cptm: str = ""
 
     # Infra
     redis_url: str = "redis://localhost:6379/0"
