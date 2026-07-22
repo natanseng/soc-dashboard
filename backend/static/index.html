@@ -276,7 +276,8 @@ body{
 .sub-msg{color:var(--dim);padding:24px;text-align:center;font-size:12px}
 .c-dim{color:var(--dim)}
 /* ===== Tela Alertas ===== */
-#alertas.screen{display:flex;flex-direction:column;gap:9px}
+/* grid de linhas fixas: band / cards / historico -> mesma proporcao em todas as paginas e altura garantida do grafico */
+#alertas.screen{display:grid;grid-template-rows:auto minmax(0,1.4fr) minmax(0,1fr);gap:9px}
 .al-band{display:grid;grid-template-columns:minmax(230px,0.85fr) 2.5fr;gap:12px;flex-shrink:0}
 .al-band-tot,.al-band-sev{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 16px;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
 .al-band-tot::after,.al-band-sev::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--brand)}
@@ -299,9 +300,9 @@ body{
 .al-kv span{color:var(--muted);flex:1}
 .al-kv b{font-family:var(--mono);font-weight:700}
 .al-seg{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;font-size:9.5px;color:var(--dim)}
-.al-units{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex-shrink:0;align-content:start}   /* 6 cards/pagina (3x2), paginado */
+.al-units{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:8px;min-height:0}   /* 6 cards/pagina (3x2); linhas iguais -> cards uniformes */
 @media(max-width:1100px){ .al-units{grid-template-columns:repeat(2,1fr)} }
-.al-tcard{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;min-height:0}
+.al-tcard{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;min-height:0;justify-content:space-between}
 .al-tcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
 .al-tcard .tname{font-size:17px}
 .al-sevbar{display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0}
@@ -317,7 +318,7 @@ body{
 .al-mtt>div{flex:1;background:rgba(255,255,255,.03);border-radius:7px;padding:5px 9px}
 .al-mtt span{color:var(--muted);font-size:10px}
 .al-mtt b{font-family:var(--mono);font-size:14px;font-weight:700;display:block}
-.al-histpanel{flex:1;min-height:0;display:flex;flex-direction:column}
+.al-histpanel{min-height:0;display:flex;flex-direction:column}
 .bg-crit{background:var(--crit)}.bg-high{background:var(--high)}.bg-med{background:var(--med)}.bg-low{background:var(--low)}.bg-info{background:var(--info)}
 .tcol-sub .tsec.grow{display:flex;flex-direction:column}
 .tcol-sub .tsec.grow .tsub-wait{flex:1}
@@ -1865,6 +1866,7 @@ function renderAlHist(d){
     yAxis:{type:'value',axisLabel:{color:'#5A6B8C',fontSize:9},splitLine:{lineStyle:{color:'#1B2740'}}},
     series};
   if(charts['alHist']) charts['alHist'].setOption(opt,true); else reg('alHist',opt);
+  try{ if(charts['alHist']) charts['alHist'].resize(); }catch(e){}   // ajusta a altura ao container do grid
   const lv=document.getElementById('alHistLive'); if(lv) lv.style.display='';
 }
 let _alBusy=false;
