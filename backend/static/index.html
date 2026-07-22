@@ -276,7 +276,7 @@ body{
 .sub-msg{color:var(--dim);padding:24px;text-align:center;font-size:12px}
 .c-dim{color:var(--dim)}
 /* ===== Tela Alertas ===== */
-#alertas.screen{display:flex;flex-direction:column;gap:14px}
+#alertas.screen{display:flex;flex-direction:column;gap:9px}
 .al-band{display:grid;grid-template-columns:minmax(230px,0.85fr) 2.5fr;gap:12px;flex-shrink:0}
 .al-band-tot,.al-band-sev{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 16px;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
 .al-band-tot::after,.al-band-sev::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--brand)}
@@ -299,8 +299,8 @@ body{
 .al-kv span{color:var(--muted);flex:1}
 .al-kv b{font-family:var(--mono);font-weight:700}
 .al-seg{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;font-size:9.5px;color:var(--dim)}
-.al-units{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;flex-shrink:0;align-content:start}
-@media(max-width:1400px){ .al-units{grid-template-columns:repeat(3,1fr)} }
+.al-units{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex-shrink:0;align-content:start}   /* 6 cards/pagina (3x2), paginado */
+@media(max-width:1100px){ .al-units{grid-template-columns:repeat(2,1fr)} }
 .al-tcard{background:rgba(255,255,255,.02);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;min-height:0}
 .al-tcard::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--tcol-accent,var(--brand))}
 .al-tcard .tname{font-size:17px}
@@ -517,7 +517,7 @@ body{
     <div class="al-band" id="alBand"><div class="rmsg">Carregando…</div></div>
     <div class="al-units" id="alUnits"></div>
     <div class="panel al-histpanel">
-      <div class="phead"><span class="ico"></span><h3>Workbenches · últimos 30 dias</h3><span class="sub">por dia de criação · todas as consoles</span><span class="livetag" id="alHistLive" style="display:none">● AO VIVO</span></div>
+      <div class="phead"><span class="ico"></span><h3>Alertas · últimos 30 dias</h3><span class="sub">por dia de criação · todas as consoles</span><span class="livetag" id="alHistLive" style="display:none">● AO VIVO</span></div>
       <div style="flex:1;min-height:0"><div class="echart" id="alHist"></div></div>
     </div>
   </section>
@@ -570,9 +570,9 @@ body{
     <div class="p-rankings">
       <div class="panel" style="flex:1.6 1 auto">
         <div class="phead"><span class="ico"></span><h3>Bloqueios WAF</h3><span class="sub">últimos 30 dias</span><span class="livetag" id="wafLive" style="display:none">● AO VIVO</span></div>
-        <div class="waf-head"><b id="wafTotal">—</b><span>workbenches · <b id="wafActive" style="color:var(--high)">—</b> ativos</span></div>
+        <div class="waf-head"><b id="wafTotal">—</b><span>Alertas · <b id="wafActive" style="color:var(--high)">—</b> ativos</span></div>
         <div class="waf-sub">Top 10 · URLs atacadas <span>(host)</span></div>
-        <div class="list" id="wafList" title="Workbenches gerados por detecções de coletores WAF (Imperva/WAF), últimos 30 dias. URLs encurtadas ao host atacado (campo requests do OAT)."></div>
+        <div class="list" id="wafList" title="Alertas gerados por detecções de coletores WAF (Imperva/WAF), últimos 30 dias. URLs encurtadas ao host atacado (campo requests do OAT)."></div>
       </div>
       <div class="panel" style="flex:1 1 auto">
         <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">por risco</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
@@ -957,7 +957,7 @@ function go(i){
   if(screens[cur]==='vuln'){ _vulnSlot=-1; showVulnSlot(0); pullVuln(); }   // Vulnerabilidades multi-tenant: comeca no Panorama
   if(screens[cur]==='soc'){ pullSoc(); }                     // Centro multi-tenant: agrega 4 tenants + Live Detections animado
   if(screens[cur]==='map'){ loadCyber(); loadWaf(); }        // tela Cyber: dados reais /cyber/*
-  if(screens[cur]==='alertas'){ loadAlertas(); }             // tela Alertas: dados reais /alerts/*
+  if(screens[cur]==='alertas'){ _alPage=0; loadAlertas(); }  // tela Alertas: dados reais /alerts/* (paginado 6/pagina)
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
 }
@@ -971,6 +971,9 @@ function rotLoop(t){
     } else if(screens[cur]==='vuln'){                 // Vulnerabilidades = detalhe rotativo por tenant (sem Panorama)
       const n=VULN_TENANTS.length;
       dur=n*VULN_SLOT_MS; showVulnSlot(Math.floor(el/VULN_SLOT_MS));
+    } else if(screens[cur]==='alertas'){              // Alertas = N paginas de 6 cards, rotativas
+      const tot=_alTotalPages();
+      dur=tot*AL_PAGE_MS; showAlPage(Math.floor(el/AL_PAGE_MS));
     }
     rotBar.style.width=Math.min(100,el/dur*100)+'%';
     if(el>=dur)go(cur+1);
@@ -1053,7 +1056,7 @@ async function loadCyber(){
           '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center">'+
             '<span>'+_cyNum(o.observations)+' obs</span>'+
             '<span title="Bloqueio confirmado / Associado à política / Apenas observado">'+enf(o)+'</span>'+
-            (o.workbenches?('<span>WB '+_cyNum(o.workbenches)+'</span>'):'')+capTag(o.capability)+
+            (o.workbenches?('<span>Alertas '+_cyNum(o.workbenches)+'</span>'):'')+capTag(o.capability)+
           '</div></div>';
       });
       // não atribuídos do último tenant
@@ -1067,7 +1070,7 @@ async function loadCyber(){
     if(covEl){
       if(cov && cov.status==='ok'){
         const g=cov.global; let f='Cobertura de atribuição: <b style="color:var(--txt)">'+g.coveragePct+'%</b> ('+_cyNum(g.attributed)+'/'+_cyNum(g.total)+')';
-        if(sum && sum.status==='ok'){ f+=' · WB '+_cyNum(sum.summary.workbench_indicators)+' · SO ativos '+_cyNum(sum.summary.suspicious_objects_active); }
+        if(sum && sum.status==='ok'){ f+=' · Alertas '+_cyNum(sum.summary.workbench_indicators)+' · SO ativos '+_cyNum(sum.summary.suspicious_objects_active); }
         covEl.innerHTML=f;
       } else covEl.textContent='Cobertura indisponível';
     }
@@ -1795,7 +1798,7 @@ function renderAlBand(sum){
     return `<span class="al-sevchip"><i class="bg-${c}"></i>${_esc(k)} <b class="c-${c}">${_alNum(sev[k]||0)}</b></span>`;}).join('')
     || '<span style="color:var(--dim);font-size:12px">Sem dados</span>';
   el.innerHTML=
-    `<div class="al-band-tot"><div class="h">Workbenches <i>· 30 dias · todas as consoles</i></div>`+
+    `<div class="al-band-tot"><div class="h">Alertas <i>· 30 dias · todas as consoles</i></div>`+
       `<div class="al-band-totrow"><div class="big">${_alNum(sum.total30d)}</div>`+
         `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
         `<span>Fechados <b>${_alNum(st['Closed']||0)}</b></span></div></div></div>`+
@@ -1815,9 +1818,20 @@ function _alCard(o){
       `<div><span>MTTR</span><b>${_humanize(o.mttr)}</b></div></div>`+
   `</div>`;
 }
+// Paginacao dos cards de Alertas: 6 por pagina, rotacionando enquanto a tela Alertas estiver ativa.
+let _alCards=[], _alPage=0;
+const AL_PER_PAGE=6, AL_PAGE_MS=12000;
+function _alTotalPages(){ return Math.max(1, Math.ceil(_alCards.length/AL_PER_PAGE)); }
+function _renderAlPage(){
+  const el=document.getElementById('alUnits'); if(!el) return;
+  const tot=_alTotalPages(); if(_alPage>=tot) _alPage=0;
+  const slice=_alCards.slice(_alPage*AL_PER_PAGE, (_alPage+1)*AL_PER_PAGE);
+  el.innerHTML = slice.length ? slice.join('') : '<div class="sub-msg">Dados indisponíveis</div>';
+}
+function showAlPage(n){ const tot=_alTotalPages(); n=((n%tot)+tot)%tot; if(n===_alPage) return; _alPage=n; _renderAlPage(); }
 function renderAlUnits(byTenant, groups, subs){
   const el=document.getElementById('alUnits'); if(!el) return;
-  if(!byTenant||byTenant.status!=='ok'){ el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
+  if(!byTenant||byTenant.status!=='ok'){ _alCards=[]; el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
   _alTenantNames={}; (byTenant.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
   const cards=[];
   // consoles single-org (tudo exceto o tenant de subindices)
@@ -1834,7 +1848,7 @@ function renderAlUnits(byTenant, groups, subs){
     cards.push(_alCard({name:nm, sublabel:'subíndice', accent:'#FFB020',
       sevActive:s.severityActive||{}, open:s.open||0, inProgress:s.inProgress||0, active:s.active||0,
       total30d:s.total30d||0, mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
-  el.innerHTML=cards.join('');
+  _alCards=cards; _renderAlPage();   // pagina 6/pagina (mantem a pagina atual no refresh)
 }
 function renderAlHist(d){
   const el=document.getElementById('alHist'); if(!el) return;
