@@ -902,13 +902,13 @@ function drawMap(){
       ctx.globalAlpha=1;
       const head=bez(p,ctrl,sp,t);
       ctx.beginPath();ctx.fillStyle=col;ctx.globalAlpha=.4;ctx.arc(head.x,head.y,5.5,0,7);ctx.fill();ctx.globalAlpha=1;
-      ctx.beginPath();ctx.fillStyle='#fff';ctx.arc(head.x,head.y,2.2,0,7);ctx.fill();
+      ctx.beginPath();ctx.fillStyle=col;ctx.arc(head.x,head.y,2.2,0,7);ctx.fill();   // nucleo = cor do produto (sem branco)
       // marcador de origem: anel pulsante + ponto
       const ph=((now/1500)+seed)%1;
       ctx.beginPath();ctx.strokeStyle=col;ctx.globalAlpha=Math.max(0,.5*(1-ph));ctx.lineWidth=1.4;
       ctx.arc(p.x,p.y,3+ph*9,0,7);ctx.stroke();ctx.globalAlpha=1;
       ctx.beginPath();ctx.fillStyle=col;ctx.arc(p.x,p.y,3,0,7);ctx.fill();
-      ctx.beginPath();ctx.fillStyle='#fff';ctx.arc(p.x,p.y,1.2,0,7);ctx.fill();
+      ctx.beginPath();ctx.fillStyle=col;ctx.arc(p.x,p.y,1.2,0,7);ctx.fill();   // origem: nucleo = cor do produto
     }
     // marcador do SOC (Prodesp / São Paulo): anel pulsante verde + núcleo + rótulo
     const phsp=(now/1400)%1;

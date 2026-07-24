@@ -706,7 +706,7 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
     """
     now = datetime.now(timezone.utc)
     base = {"startDateTime": _iso(now - timedelta(hours=hours)), "endDateTime": _iso(now),
-            "top": per_top, "select": "productCode,eventName,src,dst,request"}
+            "top": per_top, "select": "productCode,eventName,src,dst,request,suspiciousObject,suspiciousObjectType"}
 
     async def fetch(query: str) -> list:
         try:
@@ -744,6 +744,25 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
         host = urlparse(req if "://" in str(req) else "http://" + str(req)).hostname
         if host and _pub_ip(host) is None and host not in url_prod and host not in ip_prod:
             url_prod[host] = prod
+
+    # C&C / objeto suspeito de REDE (ip/dominio/url) — inclui o Endpoint quando ele detecta um C&C
+    # (SUSPICIOUS_OBJECT_DETECTION do tipo rede; os de tipo arquivo/hash sao ignorados).
+    for it in await fetch("eventName:SUSPICIOUS_OBJECT_DETECTION"):
+        prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
+        if not prod:
+            continue
+        sot = str(_first(it.get("suspiciousObjectType")) or "").lower()
+        so = _first(it.get("suspiciousObject"))
+        if not so or sot not in ("ip", "domain", "domainname", "url"):
+            continue
+        if sot == "ip":
+            ip = _pub_ip(so)
+            if ip and ip not in ip_prod:
+                ip_prod[ip] = prod
+        else:
+            host = urlparse(so if "://" in str(so) else "http://" + str(so)).hostname or str(so)
+            if host and _pub_ip(host) is None and host not in url_prod and host not in ip_prod:
+                url_prod[host] = prod
 
     markers = []
     for ip, prod in list(ip_prod.items())[:limit]:
