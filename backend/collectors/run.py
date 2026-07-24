@@ -246,10 +246,6 @@ async def tick_vuln(tenant: str, v1: VisionOneClient):
     cada um com seu cliente V1 -> escreve v1:{tenant}:vulnerabilities. Antes so o primario coletava."""
     try:
         vr = await tiers.vuln_rankings(v1)
-        try:
-            vr.update(await tiers.ips_exploit_counts(v1))   # IPS Events + Exploit attempts (card dividido)
-        except Exception as _ipx:  # noqa: BLE001
-            log.warning("VULN[%s] ips/exploit indisponivel: %s", tenant, _diag(_ipx))
         key = f"v1:{tenant}:vulnerabilities"
         try:
             prev_raw = await r.get(key)
@@ -265,15 +261,6 @@ async def tick_vuln(tenant: str, v1: VisionOneClient):
             for _k in ("total", "high", "medium", "low"):
                 if es.get(_k) is None and esp.get(_k) is not None:
                     es[_k] = esp[_k]
-        # keep-last-good ANINHADO do ipsEvents (None por metrica conserva o anterior; 0 real e mantido)
-        ie, iep = vr.get("ipsEvents"), (prev or {}).get("ipsEvents")
-        if isinstance(iep, dict):
-            if not isinstance(ie, dict):
-                vr["ipsEvents"] = iep
-            else:
-                for _k in ("e24h", "e7d", "exploit24h", "exploit7d"):
-                    if ie.get(_k) is None and iep.get(_k) is not None:
-                        ie[_k] = iep[_k]
         await r.set(key, json.dumps(vr), ex=7200)
         await r.publish(f"ws:{tenant}", json.dumps({"type": "vulnerabilities", "data": vr}))
         st = (vr.get("metadata") or {}).get("status", {})
@@ -282,6 +269,29 @@ async def tick_vuln(tenant: str, v1: VisionOneClient):
                  st.get("topApplications"), (vr.get("metadata") or {}).get("partial"))
     except Exception as exc:  # noqa: BLE001
         log.warning("VULN[%s] falhou: %s", tenant, _diag(exc))
+
+
+async def tick_ips(tenant: str, v1: VisionOneClient):
+    """IPS Events + Exploit attempts (card da tela Vulnerabilidades) -> v1:{tenant}:ips.
+
+    Tick PROPRIO e leve (search/detections + 1 OAT): NAO fica preso atras do vuln_rankings
+    (coleta de CVE lenta/instavel do prodesp). nunca-zero: None por metrica conserva o ultimo
+    valor bom; um 0 vindo de resposta 200 e ZERO REAL (console sem produto de IPS)."""
+    key = f"v1:{tenant}:ips"
+    try:
+        cur = await tiers.ips_exploit_counts(v1)
+        try:
+            prev_raw = await r.get(key)
+            prev = json.loads(prev_raw) if prev_raw else {}
+        except Exception:  # noqa: BLE001
+            prev = {}
+        cur = {k: (v if v is not None else prev.get(k)) for k, v in cur.items()}
+        await r.set(key, json.dumps(cur), ex=3600)
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "ips", "data": cur}))
+        log.info("IPS[%s] OK: ips24h=%s ips7d=%s exploit24h=%s",
+                 tenant, cur.get("e24h"), cur.get("e7d"), cur.get("exploit24h"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("IPS[%s] falhou: %s", tenant, _diag(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +436,10 @@ async def main():
     for _j, (_tid, _cli) in enumerate(_vuln_clients):
         sched.add_job(_guarded(tick_vuln, f"VULN[{_tid}]", _to(settings.tier4_interval)), "interval",
                       seconds=settings.tier4_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=24 + _j * 20))
+    # IPS Events + Exploit attempts (tick proprio, leve) — tier3; escalonado APOS a onda inicial de OAT
+    for _j, (_tid, _cli) in enumerate(_vuln_clients):
+        sched.add_job(_guarded(tick_ips, f"IPS[{_tid}]", _to(settings.tier3_interval)), "interval",
+                      seconds=settings.tier3_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=60 + _j * 12))
     # --- SOC (tela Centro) multi-tenant: feed/mitre/trend/identity dos SECUNDARIOS, LENTO (15min) e ESCALONADO ---
     # ~31 chamadas OAT por tenant; cadencia longa + stagger de 120s evita congestionar o loop (protege o tick_t1).
     _soc_secondary = [(t, c) for (t, c) in _vuln_clients if t != TENANT]

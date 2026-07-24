@@ -253,9 +253,8 @@ async def ips_exploit_counts(v1: VisionOneClient) -> dict:
 
     e24 = await ips(now - timedelta(hours=24))
     e7 = await ips(now - timedelta(days=7))
-    x24 = await exploit(now - timedelta(hours=24))
-    x7 = await exploit(now - timedelta(days=7))
-    return {"ipsEvents": {"e24h": e24, "e7d": e7, "exploit24h": x24, "exploit7d": x7}}
+    x24 = await exploit(now - timedelta(hours=24))   # exploit so 24h (1 chamada OAT; reduz carga/429)
+    return {"e24h": e24, "e7d": e7, "exploit24h": x24}
 
 
 async def high_risk(v1: VisionOneClient, top: int = 6) -> list:

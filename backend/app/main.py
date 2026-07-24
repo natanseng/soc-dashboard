@@ -69,6 +69,10 @@ async def overview(tenant: str):
     ioc_raw = await r.get(f"v1:{tenant}:ioc")
     endpoint_raw = await r.get(f"v1:{tenant}:endpoint")
     vulns_raw = await r.get(f"v1:{tenant}:vulnerabilities")
+    ips_raw = await r.get(f"v1:{tenant}:ips")
+    _vulns = json.loads(vulns_raw) if vulns_raw else {}
+    if ips_raw:
+        _vulns["ipsEvents"] = json.loads(ips_raw)   # card "Intrusion Prevention Events" (tick_ips, chave propria)
     return {
         "tenant": tenant,
         "posture": json.loads(posture_raw) if posture_raw else {},
@@ -82,7 +86,7 @@ async def overview(tenant: str):
         "identity": json.loads(ident_raw) if ident_raw else {},
         "ioc": json.loads(ioc_raw) if ioc_raw else {},
         "endpoint": json.loads(endpoint_raw) if endpoint_raw else {},
-        "vulnerabilities": json.loads(vulns_raw) if vulns_raw else {},
+        "vulnerabilities": _vulns,
         "risk": json.loads(risk_raw) if risk_raw else [],
         "attackers": await r.zrevrange(f"v1:{tenant}:map:attackers", 0, 9, withscores=True),
     }
