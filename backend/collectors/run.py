@@ -294,6 +294,27 @@ async def tick_ips(tenant: str, v1: VisionOneClient):
         log.warning("IPS[%s] falhou: %s", tenant, _diag(exc))
 
 
+async def tick_map(tenant: str, v1: VisionOneClient):
+    """Mapa de ataques (tela Cyber): IP/URL externo malicioso + ferramenta que detectou -> v1:{tenant}:map.
+    nunca-zero: coleta vazia conserva o ultimo conjunto bom (nao apaga o mapa)."""
+    key = f"v1:{tenant}:map"
+    try:
+        markers = await tiers.attack_map_markers(v1)
+        if not markers:
+            if await r.exists(key):
+                await r.expire(key, 3600)   # sem novos -> renova o ultimo bom
+                log.info("MAP[%s]: sem novos marcadores; conserva anterior", tenant)
+                return
+        await r.set(key, json.dumps(markers), ex=3600)
+        await r.publish(f"ws:{tenant}", json.dumps({"type": "map", "data": markers}))
+        by: dict = {}
+        for m in markers:
+            by[m["product"]] = by.get(m["product"], 0) + 1
+        log.info("MAP[%s] OK: %d marcadores %s", tenant, len(markers), by)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("MAP[%s] falhou: %s", tenant, _diag(exc))
+
+
 # ---------------------------------------------------------------------------
 # Dashboard multi-tenant (T1 leve) — SO a tela Dashboard e multi-tenant.
 # Coleta o minimo por tenant secundario: Nivel de risco (posture) + Alertas
@@ -440,6 +461,10 @@ async def main():
     for _j, (_tid, _cli) in enumerate(_vuln_clients):
         sched.add_job(_guarded(tick_ips, f"IPS[{_tid}]", _to(settings.tier3_interval)), "interval",
                       seconds=settings.tier3_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=60 + _j * 12))
+    # Mapa de ataques por ferramenta (search/detections) — tier3; escalonado
+    for _j, (_tid, _cli) in enumerate(_vuln_clients):
+        sched.add_job(_guarded(tick_map, f"MAP[{_tid}]", _to(settings.tier3_interval)), "interval",
+                      seconds=settings.tier3_interval, args=[_tid, _cli], next_run_time=now + timedelta(seconds=90 + _j * 10))
     # --- SOC (tela Centro) multi-tenant: feed/mitre/trend/identity dos SECUNDARIOS, LENTO (15min) e ESCALONADO ---
     # ~31 chamadas OAT por tenant; cadencia longa + stagger de 120s evita congestionar o loop (protege o tick_t1).
     _soc_secondary = [(t, c) for (t, c) in _vuln_clients if t != TENANT]

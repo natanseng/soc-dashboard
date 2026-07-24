@@ -673,6 +673,100 @@ async def suspicious_objects(v1: VisionOneClient, top: int = 12, limit: int = 20
     }
 
 
+# ---------------------------------------------------------------------------
+# Mapa de ataques por FERRAMENTA: qual produto Trend detectou o IP/URL externo malicioso.
+# ---------------------------------------------------------------------------
+_MAP_PRODUCTS = {   # productCode -> ferramenta exibida (as 5 do ambiente)
+    "sca": "CAS",
+    "sds": "Servidor", "pds": "Servidor",
+    "xes": "Endpoint", "sao": "Endpoint", "pao": "Endpoint",
+    "pdi": "DDI",
+    "ptp": "TippingPoint", "pts": "TippingPoint",
+}
+
+
+def _pub_ip(v):
+    """Retorna o IP se for PUBLICO (global roteavel); senao None."""
+    if not v:
+        return None
+    try:
+        ip = ipaddress.ip_address(str(v))
+    except ValueError:
+        return None
+    return str(ip) if ip.is_global else None
+
+
+async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int = 100, limit: int = 70) -> list:
+    """Marcadores do mapa = IP/URL externo malicioso + FERRAMENTA que detectou (search/detections).
+      * Servidor/TippingPoint -> eventName DEEP_PACKET_INSPECTION_EVENT (src/dst externo)
+      * DDI                   -> SECURITY_RISK_DETECTION + productCode pdi  (src/dst externo)
+      * CAS                   -> WEB_THREAT_DETECTION (request URL -> host -> DNS -> geo)
+    Endpoint detecta ameaca LOCAL (sem indicador externo) -> nao gera marcador (correto).
+    Geolocaliza via GeoLite2. Best-effort; [] em falha (o chamador conserva o ultimo conjunto bom).
+    """
+    now = datetime.now(timezone.utc)
+    base = {"startDateTime": _iso(now - timedelta(hours=hours)), "endDateTime": _iso(now),
+            "top": per_top, "select": "productCode,eventName,src,dst,request"}
+
+    async def fetch(query: str) -> list:
+        try:
+            d = await asyncio.wait_for(
+                v1.get_json("/v3.0/search/detections", params=base, extra_headers={"TMV1-Query": query}),
+                timeout=30)
+            return d.get("items") or []
+        except Exception as exc:  # noqa: BLE001
+            log.warning("map.fetch indisponivel (%s): %s", query[:40], diag(exc))
+            return []
+
+    def _first(x):
+        return (x[0] if x else None) if isinstance(x, list) else x
+
+    ip_prod: dict = {}    # ip publico -> ferramenta (primeiro visto vence)
+    url_prod: dict = {}   # host de URL -> ferramenta
+
+    net = await fetch("eventName:DEEP_PACKET_INSPECTION_EVENT")
+    ddi = await fetch("eventName:SECURITY_RISK_DETECTION and productCode:pdi")
+    for it in net + ddi:
+        prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
+        if not prod:
+            continue
+        ip = _pub_ip(_first(it.get("src"))) or _pub_ip(_first(it.get("dst")))
+        if ip and ip not in ip_prod:
+            ip_prod[ip] = prod
+
+    for it in await fetch("eventName:WEB_THREAT_DETECTION"):
+        prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
+        if not prod:
+            continue
+        req = _first(it.get("request"))
+        if not req:
+            continue
+        host = urlparse(req if "://" in str(req) else "http://" + str(req)).hostname
+        if host and _pub_ip(host) is None and host not in url_prod and host not in ip_prod:
+            url_prod[host] = prod
+
+    markers = []
+    for ip, prod in list(ip_prod.items())[:limit]:
+        loc = geo.lookup_ip(ip)
+        if loc:
+            markers.append({"product": prod, "value": ip, "kind": "ip", **loc})
+
+    rest = max(0, limit - len(markers))
+    if rest and url_prod:
+        sem = asyncio.Semaphore(10)
+
+        async def _geo_host(host, prod):
+            ip = await _resolve(host, sem)
+            if not ip:
+                return None
+            loc = geo.lookup_ip(ip)
+            return {"product": prod, "value": host, "kind": "url", "ip": ip, **loc} if loc else None
+
+        hres = await asyncio.gather(*(_geo_host(h, p) for h, p in list(url_prod.items())[:min(rest, 30)]))
+        markers += [x for x in hres if x]
+    return markers[:limit]
+
+
 async def network_activities(v1: VisionOneClient, minutes: int = 15) -> list:
     """Atividades de rede de alto risco -> alimenta o Attack Map (geo)."""
     end = datetime.now(timezone.utc)

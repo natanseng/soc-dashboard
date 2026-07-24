@@ -574,9 +574,11 @@ body{
       </div>
       <div class="map-ov demo-badge" id="iocLive" style="display:none;color:var(--ok);border-color:rgba(39,217,138,.4);background:rgba(39,217,138,.08)">● AO VIVO</div>
       <div class="map-ov map-legend">
-        <span><i style="background:var(--ok)"></i> Bloqueio confirmado</span>
-        <span><i style="background:var(--med)"></i> Associado à política</span>
-        <span><i style="background:var(--dim)"></i> Apenas observado</span>
+        <span><i style="background:#F59E0B"></i> Servidor</span>
+        <span><i style="background:#3B82F6"></i> Endpoint</span>
+        <span><i style="background:#22D3EE"></i> CAS</span>
+        <span><i style="background:#A855F7"></i> DDI</span>
+        <span><i style="background:#EC4899"></i> TippingPoint</span>
       </div>
       <div id="iocTip" style="position:absolute;display:none;pointer-events:none;z-index:20;max-width:260px;background:rgba(7,11,20,.96);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:11px;color:#E7EEFB;box-shadow:0 6px 24px rgba(0,0,0,.55);backdrop-filter:blur(4px)"></div>
     </div>
@@ -852,6 +854,8 @@ const cities={
 const attackers=['Moscow','Beijing','Shanghai','Pyongyang','Tehran','Lagos','Kyiv','Bucharest','Hanoi','Mumbai','Amsterdam','Frankfurt','Istanbul'];
 const targets=['SaoPaulo','Brasilia','RiodeJaneiro','Recife','Porto','SaoPaulo','SaoPaulo','Brasilia'];
 const sevColor={crit:C.crit,high:C.high,med:C.med,info:C.info};
+// cor por FERRAMENTA que detectou o IP/URL externo (mapa Cyber + legenda do rodape)
+const PROD_COLOR={Servidor:'#F59E0B',Endpoint:'#3B82F6',CAS:'#22D3EE',DDI:'#A855F7',TippingPoint:'#EC4899'};
 let arcs=[],ripples=[];
 function spawnArc(){
   const oName=pick(attackers), dName=pick(targets);
@@ -879,7 +883,7 @@ function drawMap(){
     const sp=proj(-23.55,-46.63), now=performance.now();
     for(const m of iocGeo){
       const p=proj(m.lat,m.lon);
-      const col=m.risk==='high'?C.high:(m.risk==='medium'?C.med:C.low);
+      const col=PROD_COLOR[m.product]||C.dim;   // cor = ferramenta que detectou
       const lift=Math.min(160,Math.hypot(sp.x-p.x,sp.y-p.y)*0.32+30);
       const ctrl={x:(p.x+sp.x)/2,y:(p.y+sp.y)/2-lift};
       // arco-trilha estático sutil
@@ -1467,8 +1471,11 @@ function applyIoc(d){
         '<span class="sc" style="color:'+actColor+';font-size:10px">'+_esc(act?act.toUpperCase():'')+'</span></div>');
     });
   }
-  iocGeo = Array.isArray(d.geo) ? d.geo : [];   // alimenta os marcadores do mapa
+  // os marcadores do mapa vem de applyAttackMap (v1:{t}:map — por ferramenta que detectou)
   ['iocLive','iocTypeLive','iocLive2'].forEach(id=>{const t=document.getElementById(id); if(t) t.style.display='';});
+}
+function applyAttackMap(arr){
+  if(Array.isArray(arr) && arr.length) iocGeo = arr;   // nunca-zero: coleta vazia mantem o ultimo conjunto
 }
 
 function applyEndpoint(d){
@@ -1994,6 +2001,7 @@ function applyLive(d){
   // #exec (Dashboard), #vuln (Vulnerabilidades) e #soc (Centro) sao MULTI-TENANT
   // -> pullDashboard()/pullVuln()/pullSoc(). Aqui fica so o Mapa (Cyber), que usa os IOCs do primario.
   applyIoc(d.ioc);
+  applyAttackMap(d.attackMap);
 }
 
 async function pullLive(){
@@ -2019,6 +2027,7 @@ function connectWS(){
       const m = JSON.parse(ev.data);
       // Dashboard/Centro/Vuln sao multi-tenant (pull*). Do WS do primario, so o Mapa (IOC) consome delta.
       if (m.type === 'ioc')             applyIoc(m.data);
+      if (m.type === 'map')             applyAttackMap(m.data);
       // 'vulnerabilities' (delta WS do tenant primario) IGNORADO: a tela Vuln e multi-tenant (pullVuln).
     }catch(e){}
   };
@@ -2055,12 +2064,12 @@ function boot(){
         let best=null,bd=14;
         for(const m of iocGeo){ const p=proj(m.lat,m.lon), dd=Math.hypot(p.x-mx,p.y-my); if(dd<bd){bd=dd;best=m;} }
         if(!best){ tip.style.display='none'; return; }
-        const col=best.risk==='high'?'var(--high)':(best.risk==='medium'?'var(--med)':'var(--low)');
+        const col=PROD_COLOR[best.product]||'var(--dim)';
         const loc=[best.city,best.country].filter(Boolean).join(', ')||best.country||'—';
-        tip.innerHTML='<div style="font-weight:700;margin-bottom:3px;word-break:break-all">'+_esc(best.host)+'</div>'+
-          '<div style="color:var(--muted)">'+_esc(loc)+(best.ip?(' · '+_esc(best.ip)):'')+'</div>'+
-          '<div style="margin-top:4px"><span style="color:'+col+';font-weight:700">'+_esc((best.risk||'').toUpperCase())+'</span> · '+
-          _esc(LBL[best.type]||best.type)+(best.count>1?(' · '+best.count+' IOCs'):'')+'</div>';
+        tip.innerHTML='<div style="font-weight:700;margin-bottom:3px;word-break:break-all">'+_esc(best.value||best.ip||'—')+'</div>'+
+          '<div style="color:var(--muted)">'+_esc(loc)+((best.ip&&best.ip!==best.value)?(' · '+_esc(best.ip)):'')+'</div>'+
+          '<div style="margin-top:4px"><span style="color:'+col+';font-weight:700">'+_esc(best.product||'—')+'</span> · '+
+          _esc(LBL[best.kind]||best.kind||'')+'</div>';
         tip.style.display='block';
         let tx=mx+14; if(tx+tip.offsetWidth>r.width-8) tx=mx-tip.offsetWidth-14;
         let ty=my-tip.offsetHeight-10; if(ty<8) ty=my+16;
