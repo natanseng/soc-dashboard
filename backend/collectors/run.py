@@ -246,6 +246,10 @@ async def tick_vuln(tenant: str, v1: VisionOneClient):
     cada um com seu cliente V1 -> escreve v1:{tenant}:vulnerabilities. Antes so o primario coletava."""
     try:
         vr = await tiers.vuln_rankings(v1)
+        try:
+            vr.update(await tiers.ips_exploit_counts(v1))   # IPS Events + Exploit attempts (card dividido)
+        except Exception as _ipx:  # noqa: BLE001
+            log.warning("VULN[%s] ips/exploit indisponivel: %s", tenant, _diag(_ipx))
         key = f"v1:{tenant}:vulnerabilities"
         try:
             prev_raw = await r.get(key)
@@ -261,6 +265,15 @@ async def tick_vuln(tenant: str, v1: VisionOneClient):
             for _k in ("total", "high", "medium", "low"):
                 if es.get(_k) is None and esp.get(_k) is not None:
                     es[_k] = esp[_k]
+        # keep-last-good ANINHADO do ipsEvents (None por metrica conserva o anterior; 0 real e mantido)
+        ie, iep = vr.get("ipsEvents"), (prev or {}).get("ipsEvents")
+        if isinstance(iep, dict):
+            if not isinstance(ie, dict):
+                vr["ipsEvents"] = iep
+            else:
+                for _k in ("e24h", "e7d", "exploit24h", "exploit7d"):
+                    if ie.get(_k) is None and iep.get(_k) is not None:
+                        ie[_k] = iep[_k]
         await r.set(key, json.dumps(vr), ex=7200)
         await r.publish(f"ws:{tenant}", json.dumps({"type": "vulnerabilities", "data": vr}))
         st = (vr.get("metadata") or {}).get("status", {})

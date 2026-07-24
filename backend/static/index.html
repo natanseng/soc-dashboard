@@ -403,6 +403,16 @@ body{
 .vsum-legend .lg i{width:9px;height:9px;border-radius:2px;flex-shrink:0}
 .vsum-legend .lg b{font-family:var(--display);font-weight:800;font-size:14px}
 .vsum-legend .lg small{font-size:10px;color:var(--dim)}
+/* Card dividido: metade esquerda (vuln) | metade direita (IPS + exploit attempts) */
+.p-vsummary.vsplit{display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:stretch}
+.p-vsummary.vsplit .vhalf{display:flex;flex-direction:column;min-width:0}
+.p-vsummary.vsplit .vhalf:first-child{padding-right:24px}
+.p-vsummary.vsplit .vhalf+.vhalf{border-left:1px solid rgba(255,255,255,.09);padding-left:24px}
+.vips{display:flex;align-items:center;gap:28px;flex:1;min-height:0}
+.ipsstat{display:flex;flex-direction:column;line-height:1.05;min-width:0}
+.ipsstat b{font-family:var(--display);font-weight:800;font-size:27px;color:var(--txt)}
+.ipsstat span{font-size:9px;color:var(--muted);letter-spacing:.5px;margin-top:5px;text-transform:uppercase}
+.ipsstat small{font-size:10px;color:var(--dim);margin-top:3px}
 .rlist{display:flex;flex-direction:column;gap:5px;flex:1;min-height:0}
 .rlist .rfrow{flex:1;min-height:0}
 /* Tela Vulnerabilidades: valor + unidade (ex.: "875 MÁQUINAS") em UMA linha */
@@ -421,6 +431,10 @@ body{
 #vuln .p-vsummary{padding:8px 14px}
 #vuln .vsum{gap:18px}
 #vuln .vsum-total b{font-size:22px}
+#vuln .ipsstat b{font-size:22px}
+#vuln .vips{gap:20px}
+#vuln .p-vsummary.vsplit .vhalf:first-child{padding-right:16px}
+#vuln .p-vsummary.vsplit .vhalf+.vhalf{padding-left:16px}
 #vuln .cverow{overflow:hidden}
 #vuln .cvemaq{display:flex;align-items:center;justify-content:flex-end;gap:6px}
 #vuln .cvemaq .bar{width:34px;flex-shrink:0;margin-top:0}
@@ -586,9 +600,15 @@ body{
     <div class="dashpage active" id="vpage-det">
       <div class="dashpagehead vdet-h"><b id="vDetTenant">—</b><span id="vDetSub">Top vulnerabilidades</span></div>
       <div class="vdetgrid">
-        <div class="panel p-vsummary">
-          <div class="phead"><span class="ico"></span><h3>Vulnerabilidades no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
-          <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
+        <div class="panel p-vsummary vsplit">
+          <div class="vhalf">
+            <div class="phead"><span class="ico"></span><h3>Vulnerabilidades no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
+            <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
+          </div>
+          <div class="vhalf">
+            <div class="phead"><span class="ico"></span><h3>Intrusion Prevention Events</h3><span class="sub">IPS + exploit attempts · 24h</span><span class="livetag" id="vIpsLive" style="display:none">● AO VIVO</span></div>
+            <div class="vips" id="vIps"><div class="rmsg">Carregando…</div></div>
+          </div>
         </div>
         <div class="panel p-vcves">
           <div class="phead"><span class="ico"></span><h3>Top 10 Vulnerabilidades</h3><span class="sub">ranqueado por Vulnerability impact score</span><span class="livetag" id="vCvesLive" style="display:none">● AO VIVO</span></div>
@@ -1539,6 +1559,21 @@ function renderExploitSummary(sum, status){
     `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
   _vLive('vSummaryLive', total!=null);
 }
+// Card "Intrusion Prevention Events" (metade direita): IPS Events + Exploit attempts.
+function renderIps(ips){
+  const el=document.getElementById('vIps'); if(!el) return;
+  const ok=(x)=> x!=null;
+  if(!ips || (!ok(ips.e24h) && !ok(ips.exploit24h))){
+    el.innerHTML='<div class="rmsg">Dados indisponíveis</div>'; _vLive('vIpsLive',false); return;
+  }
+  const nf=(n)=> n==null?'—':Number(n).toLocaleString('pt-BR');
+  const s1='<div class="ipsstat"><b>'+nf(ips.e24h)+'</b><span>Intrusion Prevention Events</span>'+
+           '<small>24h'+(ok(ips.e7d)?' · 7d '+nf(ips.e7d):'')+'</small></div>';
+  const s2='<div class="ipsstat"><b class="c-high">'+nf(ips.exploit24h)+'</b><span>Exploit attempts</span>'+
+           '<small>alta/crítica · 24h'+(ok(ips.exploit7d)?' · 7d '+nf(ips.exploit7d):'')+'</small></div>';
+  el.innerHTML=s1+s2;
+  _vLive('vIpsLive', ok(ips.e24h)||ok(ips.exploit24h));
+}
 // Top 10 CVEs como TABELA: colunas com titulo -> CVE | Exploração global | Máquinas | Regras IPS.
 const _CVE_EXP={high:['Alta','crit'],medium:['Média','high'],low:['Baixa','med'],none:['Nenhuma','dim']};
 function renderCveTable(id, rows){
@@ -1580,6 +1615,7 @@ function applyVulnScreen(v){
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈Vulnerabilidades'}],
   ].forEach(([key,cid,live,opt])=>{ _panel(cid,live,v[key],st[key],()=>renderRankBars(cid,v[key],opt)); });
   renderExploitSummary(v.exploitSummary, (st.exploitSummary));
+  renderIps(v.ipsEvents);
 }
 
 // ===== Vulnerabilidades multi-tenant (Panorama + Detalhe rotativo por console) =====

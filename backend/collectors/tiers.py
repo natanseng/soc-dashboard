@@ -210,6 +210,54 @@ async def event_tallies(v1: VisionOneClient) -> dict:
     return {"e24h": e24, "e24h_prev": e24p, "e7d": e7, "e30d": e30, "delta24h": delta}
 
 
+# IPS Events (Deep Packet Inspection) + Exploit attempts (OAT tecnicas de exploracao High/Critical).
+# Card "Intrusion Prevention Events" na tela Vulnerabilidades. Contagens baratas via totalCount.
+_IPS_QUERY = "eventName:DEEP_PACKET_INSPECTION_EVENT"
+_EXPLOIT_TECHS = ("T1190", "T1203", "T1210", "T1211", "T1212", "T1068")
+_EXPLOIT_FILTER = ("(" + " or ".join(f"filterMitreTechniqueId eq '{t}'" for t in _EXPLOIT_TECHS) + ")"
+                   " and (riskLevel eq 'high' or riskLevel eq 'critical')")
+
+
+async def ips_exploit_counts(v1: VisionOneClient) -> dict:
+    """Duas contagens por console p/ o card 'Intrusion Prevention Events':
+      * IPS Events        -> GET /v3.0/search/detections (mode=countOnly), eventos de Deep Packet
+                             Inspection (modulo IPS do Server & Workload Protection / Deep Security).
+      * Exploit attempts  -> GET /v3.0/oat/detections, tecnicas MITRE de exploracao
+                             (T1190/T1203/T1210/T1211/T1212/T1068) em severidade High/Critical.
+    Janelas 24h e 7d. None por metrica em falha (o chamador conserva o ultimo valor bom); um 0 vindo
+    de resposta 200 e ZERO REAL (console sem produto de IPS conectado), NAO 'indisponivel'.
+    """
+    now = datetime.now(timezone.utc)
+
+    async def ips(start: datetime):
+        try:
+            d = await v1.get_json(
+                "/v3.0/search/detections",
+                params={"startDateTime": _iso(start), "endDateTime": _iso(now), "mode": "countOnly"},
+                extra_headers={"TMV1-Query": _IPS_QUERY})
+            tc = d.get("totalCount")
+            return int(tc) if tc is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def exploit(start: datetime):
+        try:
+            d = await v1.get_json(
+                "/v3.0/oat/detections",
+                params={"detectedStartDateTime": _iso(start), "detectedEndDateTime": _iso(now), "top": 50},
+                extra_headers={"TMV1-Filter": _EXPLOIT_FILTER})
+            tc = d.get("totalCount")
+            return int(tc) if tc is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    e24 = await ips(now - timedelta(hours=24))
+    e7 = await ips(now - timedelta(days=7))
+    x24 = await exploit(now - timedelta(hours=24))
+    x7 = await exploit(now - timedelta(days=7))
+    return {"ipsEvents": {"e24h": e24, "e7d": e7, "exploit24h": x24, "exploit7d": x7}}
+
+
 async def high_risk(v1: VisionOneClient, top: int = 6) -> list:
     """Usuários + dispositivos de maior risco -> painel Risk Indicators.
 
