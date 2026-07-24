@@ -177,20 +177,41 @@ log "Instalando dependencias…"
 as_user "$BACKEND/.venv/bin/pip" install --upgrade pip setuptools wheel
 as_user "$BACKEND/.venv/bin/pip" install -r "$BACKEND/requirements.txt"
 
-# ---------- 6. migrations + seeds (via psql do container) ----------
-log "6/8  Aplicando migrations…"
-PSQL="sudo podman exec -i socdash-db psql -U socdash -d socdash" bash "$INFRA/migrate.sh"
-log "Aplicando seeds (idempotentes)…"
-for f in 001_cyber_current_environment 002_cyber_attribution_modes \
-         003_sggd_subindex_collectors 004_waf_collectors 005_new_tenants; do
-  if [ -f "$INFRA/seeds/$f.sql" ]; then
-    echo "  >> seed $f"
-    sudo podman exec -i socdash-db psql -U socdash -d socdash -v ON_ERROR_STOP=1 < "$INFRA/seeds/$f.sql" >/dev/null
+# ---------- 6. migrations + seeds (A ORDEM IMPORTA) ----------
+# A migration 002 torna organization.tenant_id NOT NULL e faz BACKFILL a partir de
+# cyber_tenant_config. Por isso o seed 001 (que popula orgs/tenants/config) tem de rodar
+# DEPOIS da mig 001 e ANTES da mig 002. Seeds 002-005 rodam no schema final.
+log "6/8  Aplicando migrations + seeds…"
+PSQLC="sudo podman exec -i socdash-db psql -U socdash -d socdash"
+seeds_finais() {
+  for f in 002_cyber_attribution_modes 003_sggd_subindex_collectors 004_waf_collectors 005_new_tenants; do
+    [ -f "$INFRA/seeds/$f.sql" ] && { echo "  >> seed $f"; $PSQLC -v ON_ERROR_STOP=1 < "$INFRA/seeds/$f.sql" >/dev/null; }
+  done
+}
+orgcount="$($PSQLC -tAc 'select count(*) from organization' 2>/dev/null || echo X)"
+if [ "$orgcount" != X ] && [ "$orgcount" -gt 0 ] 2>/dev/null; then
+  echo "  organization ja populada ($orgcount orgs) — aplicando migrations pendentes + seeds idempotentes"
+  PSQL="$PSQLC" bash "$INFRA/migrate.sh"
+  seeds_finais
+else
+  if $PSQLC -tAc "select 1 from schema_migrations where version='002_cyber_tenant_organizations'" 2>/dev/null | grep -q 1; then
+    die "Banco com schema pos-002 porem SEM dados de organizacao (execucao anterior fora de ordem).
+Como NAO ha dados coletados ainda, resete o banco e rode de novo:
+  sudo systemctl stop db.service
+  sudo podman rm -f socdash-db 2>/dev/null
+  sudo podman volume rm db_data
+  sudo bash $0"
   fi
-done
+  echo "  bootstrap (ordem correta): mig 001 -> seed 001 -> mig 002+ -> seeds 002-005"
+  m1="$(mktemp -d)"; cp "$INFRA"/migrations/001_*.sql "$m1"/
+  PSQL="$PSQLC" DIR="$m1" bash "$INFRA/migrate.sh"; rm -rf "$m1"
+  echo "  >> seed 001_cyber_current_environment"
+  $PSQLC -v ON_ERROR_STOP=1 < "$INFRA/seeds/001_cyber_current_environment.sql" >/dev/null
+  PSQL="$PSQLC" bash "$INFRA/migrate.sh"
+  seeds_finais
+fi
 echo -n "  tenants no banco: "
-sudo podman exec -i socdash-db psql -U socdash -d socdash -tAc \
-  "select string_agg(tenant_id, ', ' order by tenant_id) from cyber_tenant_config;"
+$PSQLC -tAc "select string_agg(tenant_id, ', ' order by tenant_id) from cyber_tenant_config;"
 
 # ---------- 7. servicos systemd do backend ----------
 log "7/8  Criando servicos systemd (api / collector / cyber)…"
