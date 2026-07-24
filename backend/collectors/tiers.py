@@ -723,6 +723,8 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
 
     ip_prod: dict = {}    # ip publico -> ferramenta (primeiro visto vence)
     url_prod: dict = {}   # host de URL -> ferramenta
+    ip_ct: dict = {}      # ip  -> nr de deteccoes (ranqueia a lista lateral)
+    url_ct: dict = {}     # host -> nr de deteccoes
 
     net = await fetch("eventName:DEEP_PACKET_INSPECTION_EVENT")
     ddi = await fetch("eventName:SECURITY_RISK_DETECTION and productCode:pdi")
@@ -731,8 +733,9 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
         if not prod:
             continue
         ip = _pub_ip(_first(it.get("src"))) or _pub_ip(_first(it.get("dst")))
-        if ip and ip not in ip_prod:
-            ip_prod[ip] = prod
+        if ip:
+            ip_prod.setdefault(ip, prod)
+            ip_ct[ip] = ip_ct.get(ip, 0) + 1
 
     for it in await fetch("eventName:WEB_THREAT_DETECTION"):
         prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
@@ -742,8 +745,9 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
         if not req:
             continue
         host = urlparse(req if "://" in str(req) else "http://" + str(req)).hostname
-        if host and _pub_ip(host) is None and host not in url_prod and host not in ip_prod:
-            url_prod[host] = prod
+        if host and _pub_ip(host) is None and host not in ip_prod:
+            url_prod.setdefault(host, prod)
+            url_ct[host] = url_ct.get(host, 0) + 1
 
     # C&C / objeto suspeito de REDE (ip/dominio/url) — inclui o Endpoint quando ele detecta um C&C
     # (SUSPICIOUS_OBJECT_DETECTION do tipo rede; os de tipo arquivo/hash sao ignorados).
@@ -757,32 +761,38 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
             continue
         if sot == "ip":
             ip = _pub_ip(so)
-            if ip and ip not in ip_prod:
-                ip_prod[ip] = prod
+            if ip:
+                ip_prod.setdefault(ip, prod)
+                ip_ct[ip] = ip_ct.get(ip, 0) + 1
         else:
             host = urlparse(so if "://" in str(so) else "http://" + str(so)).hostname or str(so)
-            if host and _pub_ip(host) is None and host not in url_prod and host not in ip_prod:
-                url_prod[host] = prod
+            if host and _pub_ip(host) is None and host not in ip_prod:
+                url_prod.setdefault(host, prod)
+                url_ct[host] = url_ct.get(host, 0) + 1
 
     markers = []
-    for ip, prod in list(ip_prod.items())[:limit]:
+    for ip in sorted(ip_prod, key=lambda k: ip_ct.get(k, 0), reverse=True)[:limit]:
         loc = geo.lookup_ip(ip)
         if loc:
-            markers.append({"product": prod, "value": ip, "kind": "ip", **loc})
+            markers.append({"product": ip_prod[ip], "value": ip, "kind": "ip",
+                            "count": ip_ct.get(ip, 1), **loc})
 
     rest = max(0, limit - len(markers))
     if rest and url_prod:
         sem = asyncio.Semaphore(10)
 
-        async def _geo_host(host, prod):
+        async def _geo_host(host, prod, cnt):
             ip = await _resolve(host, sem)
             if not ip:
                 return None
             loc = geo.lookup_ip(ip)
-            return {"product": prod, "value": host, "kind": "url", "ip": ip, **loc} if loc else None
+            return {"product": prod, "value": host, "kind": "url", "ip": ip, "count": cnt, **loc} if loc else None
 
-        hres = await asyncio.gather(*(_geo_host(h, p) for h, p in list(url_prod.items())[:min(rest, 30)]))
+        top_urls = sorted(url_prod, key=lambda k: url_ct.get(k, 0), reverse=True)[:min(rest, 30)]
+        hres = await asyncio.gather(*(_geo_host(h, url_prod[h], url_ct.get(h, 1)) for h in top_urls))
         markers += [x for x in hres if x]
+
+    markers.sort(key=lambda m: m.get("count", 0), reverse=True)
     return markers[:limit]
 
 

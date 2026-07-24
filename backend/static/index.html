@@ -590,7 +590,7 @@ body{
         <div class="list" id="wafList" title="Alertas gerados por detecções de coletores WAF (Imperva/WAF), últimos 30 dias. URLs encurtadas ao host atacado (campo requests do OAT)."></div>
       </div>
       <div class="panel" style="flex:1 1 auto">
-        <div class="phead"><span class="ico"></span><h3>Top IOCs</h3><span class="sub">por risco</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
+        <div class="phead"><span class="ico"></span><h3>Top ataques externos</h3><span class="sub">por ferramenta</span><span class="livetag" id="iocLive2" style="display:none">● AO VIVO</span></div>
         <div class="list" id="iocList"></div>
       </div>
     </div>
@@ -1456,26 +1456,29 @@ function applyIoc(d){
         '<span class="sc c-high">'+Number(n).toLocaleString('pt-BR')+'</span></div>');
     });
   }
-  const il=document.getElementById('iocList');
-  if(il && Array.isArray(d.top)){
-    il.innerHTML='';
-    d.top.slice(0,5).forEach((it,i)=>{
-      const rv=_IOC_RISK_VAR[String(it.risk||'').toLowerCase()]||'info';
-      const act=String(it.action||'').toLowerCase();
-      const actColor=act==='block'?'var(--ok)':'var(--dim)';
-      il.insertAdjacentHTML('beforeend',
-        '<div class="li"><span class="rank">'+(i+1)+'</span>'+
-        '<span class="dot-sev" style="background:var(--'+rv+')"></span>'+
-        '<span class="nm mono" style="font-size:11px">'+_esc(_iocVal(it.value,it.type))+
-        '<small style="font-family:var(--body)">'+_esc(_IOC_TYPE_LABEL[it.type]||it.type)+'</small></span>'+
-        '<span class="sc" style="color:'+actColor+';font-size:10px">'+_esc(act?act.toUpperCase():'')+'</span></div>');
-    });
-  }
+  // 'Top ataques externos' (iocList) e populado por applyAttackMap() com o dado real do mapa (por ferramenta)
   // os marcadores do mapa vem de applyAttackMap (v1:{t}:map — por ferramenta que detectou)
   ['iocLive','iocTypeLive','iocLive2'].forEach(id=>{const t=document.getElementById(id); if(t) t.style.display='';});
 }
 function applyAttackMap(arr){
-  if(Array.isArray(arr) && arr.length) iocGeo = arr;   // nunca-zero: coleta vazia mantem o ultimo conjunto
+  if(!Array.isArray(arr) || !arr.length) return;   // nunca-zero: coleta vazia mantem o ultimo conjunto
+  iocGeo = arr;
+  const il=document.getElementById('iocList');
+  if(il){
+    il.innerHTML='';
+    arr.slice(0,6).forEach((m,i)=>{
+      const col=PROD_COLOR[m.product]||'var(--dim)';
+      const loc=m.country?(' · '+_esc(m.country)):'';
+      il.insertAdjacentHTML('beforeend',
+        '<div class="li"><span class="rank">'+(i+1)+'</span>'+
+        '<span class="dot-sev" style="background:'+col+'"></span>'+
+        '<span class="nm mono" style="font-size:11px">'+_esc(m.value||m.ip||'—')+
+        '<small style="font-family:var(--body)">'+_esc(m.product||'')+loc+'</small></span>'+
+        ((m.count>1)?('<span class="sc" style="color:'+col+';font-size:10px">'+m.count+'</span>'):'')+
+        '</div>');
+    });
+    const t=document.getElementById('iocLive2'); if(t) t.style.display='';
+  }
 }
 
 function applyEndpoint(d){
