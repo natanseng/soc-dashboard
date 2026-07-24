@@ -9,18 +9,31 @@
 # Runtime de containers = Podman + Quadlet (nativo do RHEL). App = venv Python 3.12.
 # 3 servicos systemd: socdash-api (uvicorn), socdash-collector (Fase 1), socdash-cyber.
 #
-# USO (no host RHEL, apos extrair o bundle em /opt/soc-dashboard):
+# Funciona nos dois casos:
+#   (a) arvore ja extraida (voce compactou a pasta soc-dashboard do WSL e descompactou aqui);
+#   (b) bundle gerado por infra/package-for-rhel.sh.
+# Se a arvore veio do WSL, o .venv do WSL NAO serve no RHEL — este script o RECRIA.
+#
+# USO (no host RHEL):
 #   sudo bash /opt/soc-dashboard/infra/deploy-rhel9.sh
-# (ou, como usuario com sudo NOPASSWD:)  bash /opt/soc-dashboard/infra/deploy-rhel9.sh
+#   (tambem funciona se voce salvar este arquivo na RAIZ do projeto, ex. /opt/soc-dashboard/deploy.sh)
+# (ou, como usuario com sudo NOPASSWD:)  bash .../deploy-rhel9.sh
 #
 # Idempotente: pode rodar de novo (migrations por checksum, seeds idempotentes,
-# units reescritos). NAO destroi o volume de dados do Postgres.
+# units reescritos, venv recriado so se ausente/estrangeiro). NAO destroi o volume do Postgres.
 # =====================================================================================
 set -euo pipefail
 
-# ---------- localizacao (este script vive em <APP>/infra/) ----------
+# ---------- localizacao: detecta a RAIZ do projeto (pasta com backend/ e infra/) ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+find_root(){
+  local d
+  for d in "$SCRIPT_DIR" "$SCRIPT_DIR/.." "/opt/soc-dashboard" "$PWD" "$PWD/soc-dashboard"; do
+    if [ -d "$d/backend" ] && [ -d "$d/infra" ]; then (cd "$d" && pwd); return 0; fi
+  done
+  return 1
+}
+APP_DIR="$(find_root)" || { echo "ERRO: nao achei a raiz do projeto (pasta com backend/ e infra/). Rode de dentro de /opt/soc-dashboard." >&2; exit 1; }
 BACKEND="$APP_DIR/backend"
 INFRA="$APP_DIR/infra"
 ENV_FILE="$BACKEND/.env"
@@ -146,8 +159,21 @@ done
 sudo podman ps --format '  {{.Names}}  {{.Status}}'
 
 # ---------- 5. venv + dependencias ----------
-log "5/8  Criando venv Python 3.12 e instalando dependencias…"
-[ -d "$BACKEND/.venv" ] || as_user "$PY" -m venv "$BACKEND/.venv"
+# Recria o venv se estiver ausente OU se for "estrangeiro" (copiado do WSL: os shebangs
+# apontam para /home/lucas/... e nao funcionam neste host).
+log "5/8  Preparando venv Python 3.12…"
+need_venv=1
+if [ -x "$BACKEND/.venv/bin/python" ] && head -1 "$BACKEND/.venv/bin/pip" 2>/dev/null | grep -q "$BACKEND/.venv"; then
+  need_venv=""
+fi
+if [ -n "$need_venv" ]; then
+  echo "  (re)criando venv em $BACKEND/.venv"
+  sudo rm -rf "$BACKEND/.venv"
+  as_user "$PY" -m venv "$BACKEND/.venv"
+else
+  echo "  venv existente e valido — reutilizando"
+fi
+log "Instalando dependencias…"
 as_user "$BACKEND/.venv/bin/pip" install --upgrade pip setuptools wheel
 as_user "$BACKEND/.venv/bin/pip" install -r "$BACKEND/requirements.txt"
 
@@ -176,7 +202,7 @@ Wants=network-online.target
 [Service]
 User=$RUN_USER
 WorkingDirectory=$BACKEND
-ExecStart=$BACKEND/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart=$BACKEND/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 Restart=always
 RestartSec=5
 [Install]
