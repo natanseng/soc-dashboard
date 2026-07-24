@@ -40,6 +40,17 @@ app.add_middleware(
 )
 
 
+# Wallboard em tempo real + servido por HTTP simples atras de proxy corporativo: NADA deve
+# ser cacheado (senao um deploy novo do index.html nao aparece ate o cache do proxy expirar).
+@app.middleware("http")
+async def _no_cache(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.get("/healthz")
 async def healthz():
     # Redis: comportamento atual PRESERVADO (mesmas chaves status/redis[/error]).
