@@ -701,12 +701,14 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
       * Servidor/TippingPoint -> eventName DEEP_PACKET_INSPECTION_EVENT (src/dst externo)
       * DDI                   -> SECURITY_RISK_DETECTION + productCode pdi  (src/dst externo)
       * CAS                   -> WEB_THREAT_DETECTION (request URL -> host -> DNS -> geo)
-    Endpoint detecta ameaca LOCAL (sem indicador externo) -> nao gera marcador (correto).
+      * Endpoint              -> SECURITY_RISK_DETECTION / "Network Content Inspection" (Suspicious
+                                 Connection / CCCA do agente): domainName C&C externo -> DNS -> geo
     Geolocaliza via GeoLite2. Best-effort; [] em falha (o chamador conserva o ultimo conjunto bom).
     """
     now = datetime.now(timezone.utc)
     base = {"startDateTime": _iso(now - timedelta(hours=hours)), "endDateTime": _iso(now),
-            "top": per_top, "select": "productCode,eventName,src,dst,request,suspiciousObject,suspiciousObjectType"}
+            "top": per_top,
+            "select": "productCode,eventName,eventSubName,domainName,src,dst,request,suspiciousObject,suspiciousObjectType"}
 
     async def fetch(query: str) -> list:
         try:
@@ -769,6 +771,20 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
             if host and _pub_ip(host) is None and host not in ip_prod:
                 url_prod.setdefault(host, prod)
                 url_ct[host] = url_ct.get(host, 0) + 1
+
+    # Suspicious Connection (Apex One / Network Content Inspection = CCCA): o ENDPOINT detecta/bloqueia
+    # conexao a dominio C&C externo. Indicador externo = domainName (host) -> DNS -> geo; ferramenta = Endpoint.
+    for it in await fetch('eventName:SECURITY_RISK_DETECTION and eventSubName:"Network Content Inspection"'):
+        prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
+        if not prod:
+            continue
+        host = _first(it.get("domainName"))
+        if not host:
+            continue
+        host = str(host).strip().lower().rstrip(".")
+        if host and _pub_ip(host) is None and host not in ip_prod:
+            url_prod.setdefault(host, prod)
+            url_ct[host] = url_ct.get(host, 0) + 1
 
     markers = []
     for ip in sorted(ip_prod, key=lambda k: ip_ct.get(k, 0), reverse=True)[:limit]:
