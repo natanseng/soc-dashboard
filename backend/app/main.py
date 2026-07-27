@@ -168,9 +168,17 @@ async def _alerts_call(fn, **kw):
         return {"status": "unavailable"}
 
 
+def _tlist(tenants):
+    """Converte ?tenants=a,b,c em lista (escopo do perfil Dash SOC). Vazio/None => sem filtro (todas as consoles)."""
+    if not tenants:
+        return None
+    xs = [t.strip() for t in tenants.split(",") if t.strip()]
+    return xs or None
+
+
 @app.get("/alerts/summary")
-async def alerts_summary():
-    return await _alerts_call(cyber_alerts_api.summary)
+async def alerts_summary(tenants: Optional[str] = None):
+    return await _alerts_call(cyber_alerts_api.summary, tenants=_tlist(tenants))
 
 
 @app.get("/alerts/by-tenant")
@@ -302,12 +310,12 @@ async def cyber_coverage():
 
 
 @app.get("/cyber/waf")
-async def cyber_waf():
+async def cyber_waf(tenants: Optional[str] = None):
     pool = db.get_pool()
     if pool is None:
         return {"status": "unavailable"}
     try:
-        return await cyber_api.waf_blocks(pool)
+        return await cyber_api.waf_blocks(pool, tenants=_tlist(tenants))
     except Exception:  # noqa: BLE001
         return {"status": "unavailable"}
 

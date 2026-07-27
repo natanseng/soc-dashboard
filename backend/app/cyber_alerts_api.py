@@ -32,18 +32,22 @@ async def _enabled_tenants(conn):
         "WHERE c.cyber_enabled AND c.enabled ORDER BY t.display_name")
 
 
-async def summary(pool) -> dict:
-    """Consolidado de TODAS as consoles: severidade (dinamica), status, total 30d/ativo, MTTD/MTTR global+segmentado."""
+async def summary(pool, tenants=None) -> dict:
+    """Consolidado das consoles (todas, ou apenas `tenants` quando informado — perfil Dash SOC):
+    severidade (dinamica), status, total 30d/ativo, MTTD/MTTR global+segmentado."""
+    tfw = " AND tenant_id = ANY($1)" if tenants else ""   # p/ queries que ja tem WHERE
+    tww = " WHERE tenant_id = ANY($1)" if tenants else ""  # p/ queries sem WHERE
+    p = [tenants] if tenants else []
     async with pool.acquire() as conn:
-        sev30 = await conn.fetch(f"SELECT severity, count(*) n FROM cyber_workbench_alert WHERE {WIN30} GROUP BY severity")
-        sevact = await conn.fetch(f"SELECT severity, count(*) n FROM cyber_workbench_alert WHERE {ACTIVE} GROUP BY severity")
-        stat = await conn.fetch("SELECT status, count(*) n FROM cyber_workbench_alert GROUP BY status")
+        sev30 = await conn.fetch(f"SELECT severity, count(*) n FROM cyber_workbench_alert WHERE {WIN30}{tfw} GROUP BY severity", *p)
+        sevact = await conn.fetch(f"SELECT severity, count(*) n FROM cyber_workbench_alert WHERE {ACTIVE}{tfw} GROUP BY severity", *p)
+        stat = await conn.fetch(f"SELECT status, count(*) n FROM cyber_workbench_alert{tww} GROUP BY status", *p)
         tot = await conn.fetchrow(
             f"SELECT count(*) FILTER (WHERE {WIN30}) AS total_30d, "
-            f"count(*) FILTER (WHERE {ACTIVE}) AS active, count(*) AS total_all FROM cyber_workbench_alert")
-        mtt = await conn.fetchrow(f"SELECT {_MTT} FROM cyber_workbench_alert WHERE {WIN30}")
+            f"count(*) FILTER (WHERE {ACTIVE}) AS active, count(*) AS total_all FROM cyber_workbench_alert{tww}", *p)
+        mtt = await conn.fetchrow(f"SELECT {_MTT} FROM cyber_workbench_alert WHERE {WIN30}{tfw}", *p)
         seg = await conn.fetch(
-            f"SELECT model_type, {_MTT} FROM cyber_workbench_alert WHERE {WIN30} GROUP BY model_type")
+            f"SELECT model_type, {_MTT} FROM cyber_workbench_alert WHERE {WIN30}{tfw} GROUP BY model_type", *p)
     def _sev(rows):
         return {(r["severity"] or "unknown"): int(r["n"]) for r in rows}
     return {"status": "ok",

@@ -1104,7 +1104,7 @@ async function loadWaf(){
   const live=document.getElementById('wafLive');
   const setT=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=(v==null?'—':_cyNum(v)); };
   try{
-    const d=await fetch(API_BASE+'/cyber/waf',{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
+    const d=await fetch(API_BASE+_scoped('/cyber/waf'),{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
     if(!d || d.status!=='ok'){ setT('wafTotal',null); setT('wafActive',null); if(live) live.style.display='none';
       el.innerHTML='<div class="li"><span class="nm" style="color:var(--muted)">Dados indisponíveis</span></div>'; return; }
     setT('wafTotal',d.total30d); setT('wafActive',d.active); if(live) live.style.display='';
@@ -1124,7 +1124,23 @@ async function loadWaf(){
    Config por URL: ?tenant=prodesp-sp&api=http://host:8000
    ====================================================== */
 const _params  = new URLSearchParams(location.search);
-const TENANT   = _params.get('tenant') || 'prodesp-sp';
+/* ===== Perfil do dashboard (?profile=soc) =====================================
+   'prodesp' (padrao) = projeto completo, TODOS os tenants.
+   'soc'              = apenas Detran, Iamspe e SGGD — em TODAS as telas.
+   Mesmo backend/porta; a segmentacao e por querystring:  /  vs  /?profile=soc     */
+const PROFILES = { prodesp: null, soc: ['detran-sp','iamspe-sp','sggd'] };
+const PROFILE  = (_params.get('profile') || 'prodesp').toLowerCase();
+const PROFILE_TENANTS = (PROFILE in PROFILES) ? PROFILES[PROFILE] : null;   // null => todos
+const PROFILE_LABEL   = (PROFILE === 'soc') ? 'DASH SOC' : 'DASH PRODESP';
+function _inProfile(id){ return !PROFILE_TENANTS || PROFILE_TENANTS.indexOf(id) >= 0; }
+// querystring de escopo p/ endpoints agregados (?tenants=a,b,c); vazia no perfil completo
+const _SCOPE_QS = PROFILE_TENANTS ? ('tenants=' + PROFILE_TENANTS.map(encodeURIComponent).join(',')) : '';
+function _scoped(path){ return _SCOPE_QS ? (path + (path.indexOf('?')>=0?'&':'?') + _SCOPE_QS) : path; }
+
+const TENANT   = _params.get('tenant') || (PROFILE_TENANTS ? PROFILE_TENANTS[0] : 'prodesp-sp');
+// Tenants cujos ataques compoem o Mapa (Cyber). Perfil completo = so o primario (comportamento atual);
+// Dash SOC = agrega os 3. pullLive() faz o merge dos attackMap de cada um.
+const MAP_TENANTS = PROFILE_TENANTS ? PROFILE_TENANTS.slice() : [TENANT];
 // API_BASE vazio = mesma origem (produção via proxy). Em dev (porta 5173 ou file://) usa :8000.
 const API_BASE = _params.get('api') ||
   (((location.port === '8000' || location.port === '') && location.protocol !== 'file:') ? '' : 'http://localhost:8000');
@@ -1137,7 +1153,8 @@ let lastLive = null;
 const TENANT_LABELS = {'prodesp-sp':'PRODESP', 'TM-LAR':'TM-LAR'};
 function setTenantLabel(){
   const el = document.getElementById('tenantName');
-  if (el) el.textContent = TENANT_LABELS[TENANT] || TENANT.toUpperCase();
+  // No perfil SOC o header identifica o dashboard (nao um tenant especifico).
+  if (el) el.textContent = PROFILE_TENANTS ? PROFILE_LABEL : (TENANT_LABELS[TENANT] || TENANT.toUpperCase());
 }
 
 function setApiState(ok, msg){
@@ -1633,7 +1650,7 @@ const VULN_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
-];
+].filter(t=>_inProfile(t.id));   // Dash SOC: apenas Detran/Iamspe/SGGD
 const VULN_SLOT_MS = 10000;          // 10s por pagina (1 tenant por vez); dwell da tela = nº tenants x 10s
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
 let _vulnSlot = -1;
@@ -1677,7 +1694,7 @@ const DASH_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
-];
+].filter(t=>_inProfile(t.id));   // Dash SOC: Detran/Iamspe (SGGD entra via Cyber Risk Subindexes)
 function _riCls(v){ return v<30?'low':(v<70?'med':'crit'); }
 function _nfp(v){ return Number(v||0).toLocaleString('pt-BR'); }
 function _sv(x){ return (x==null||x==='') ? '—' : _nfp(x); }        // nunca 0 fabricado p/ indisponivel
@@ -1839,7 +1856,7 @@ function renderAlBand(sum){
     return `<span class="al-sevchip"><i class="bg-${c}"></i>${_esc(k)} <b class="c-${c}">${_alNum(sev[k]||0)}</b></span>`;}).join('')
     || '<span style="color:var(--dim);font-size:12px">Sem dados</span>';
   el.innerHTML=
-    `<div class="al-band-tot"><div class="h">Alertas <i>· 30 dias · todas as consoles</i></div>`+
+    `<div class="al-band-tot"><div class="h">Alertas <i>· 30 dias · ${PROFILE_TENANTS?'consoles do SOC':'todas as consoles'}</i></div>`+
       `<div class="al-band-totrow"><div class="big">${_alNum(sum.total30d)}</div>`+
         `<div class="al-sub"><span>Ativos <b class="c-high">${_alNum(sum.active)}</b></span>`+
         `<span>Fechados <b>${_alNum(st['Closed']||0)}</b></span></div></div></div>`+
@@ -1875,8 +1892,8 @@ function renderAlUnits(byTenant, groups, subs){
   if(!byTenant||byTenant.status!=='ok'){ _alCards=[]; el.innerHTML='<div class="sub-msg">Dados indisponíveis</div>'; return; }
   _alTenantNames={}; (byTenant.tenants||[]).forEach(t=>_alTenantNames[t.tenantId]=t.tenantName);
   const cards=[];
-  // consoles single-org (tudo exceto o tenant de subindices)
-  (byTenant.tenants||[]).forEach(t=>{ if(t.tenantId===SUBINDEX_TENANT) return; const m=t.mtt||{};
+  // consoles single-org (tudo exceto o tenant de subindices); filtra pelo perfil (Dash SOC)
+  (byTenant.tenants||[]).forEach(t=>{ if(t.tenantId===SUBINDEX_TENANT) return; if(!_inProfile(t.tenantId)) return; const m=t.mtt||{};
     cards.push(_alCard({name:t.tenantName, sublabel:'console', accent:_AL_ACCENT[t.tenantId]||'#5A6B8C',
       sevActive:t.severityActive, open:t.open, inProgress:t.inProgress, active:t.active, total30d:t.total30d,
       mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
@@ -1896,7 +1913,7 @@ function renderAlHist(d){
   const lv0=document.getElementById('alHistLive');
   if(!d||d.status!=='ok'){ if(lv0) lv0.style.display='none'; return; }   // não deixa 'AO VIVO' com dado velho
   const dates=Object.keys(d.consolidated||{}).sort();
-  const tenants=Object.keys(d.byTenant||{});
+  const tenants=Object.keys(d.byTenant||{}).filter(t=>_inProfile(t));   // Dash SOC: apenas os 3
   const short=(s)=>s.slice(5).replace('-','/');
   const series=tenants.map(t=>({name:_prettyTenant(t),type:'bar',stack:'wb',
     itemStyle:{color:_AL_ACCENT[t]||'#5A6B8C'}, data:dates.map(dt=>(d.byTenant[t]||{})[dt]||0)}));
@@ -1916,7 +1933,7 @@ async function loadAlertas(){
   const _g=(p)=>fetch(API_BASE+p,{cache:'no-store'}).then(r=>r.json()).catch(()=>({status:'error'}));
   try{
     const [sum,ten,groups,subs,hist]=await Promise.all([
-      _g('/alerts/summary'),_g('/alerts/by-tenant'),
+      _g(_scoped('/alerts/summary')),_g('/alerts/by-tenant'),
       _g('/cyber/asset-groups?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),
       _g('/alerts/by-subindex?tenantId='+encodeURIComponent(SUBINDEX_TENANT)),_g('/alerts/history?days=30')]);
     renderAlBand(sum); renderAlUnits(ten, groups, subs); renderAlHist(hist);
@@ -2002,14 +2019,30 @@ function applyLive(d){
   applyAttackMap(d.attackMap);
 }
 
+// Une os attackMap de varios tenants (perfil Dash SOC): soma count por indicador+produto, ordena desc, corta em 70.
+function mergeAttackMaps(arrs){
+  const byKey=new Map();
+  (arrs||[]).forEach(arr=>{ if(Array.isArray(arr)) arr.forEach(m=>{
+    if(!m) return;
+    const k=(m.value||m.ip||'')+'|'+(m.product||'');
+    const e=byKey.get(k);
+    if(e) e.count=(e.count||1)+(m.count||1);
+    else byKey.set(k, Object.assign({}, m));
+  }); });
+  return Array.from(byKey.values()).sort((a,b)=>(b.count||1)-(a.count||1)).slice(0,70);
+}
+
 async function pullLive(){
   try{
-    const r = await fetch(API_BASE + '/api/' + encodeURIComponent(TENANT) + '/overview', {cache:'no-store'});
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
-    lastLive = d;
-    applyLive(d);
-    setApiState(true);
+    // Mapa (Cyber): perfil completo = apenas o primario (comportamento atual); Dash SOC = agrega os 3.
+    const parts = await Promise.all(MAP_TENANTS.map(id=>
+      fetch(API_BASE + '/api/' + encodeURIComponent(id) + '/overview', {cache:'no-store'})
+        .then(r=> r.ok ? r.json() : null).catch(()=>null)));
+    const prim = parts.find(Boolean);
+    if (prim){ lastLive = prim; applyIoc(prim.ioc); }
+    applyAttackMap(MAP_TENANTS.length===1 ? (prim && prim.attackMap)
+                                          : mergeAttackMaps(parts.filter(Boolean).map(d=>d.attackMap)));
+    setApiState(!!prim);
   }catch(err){
     setApiState(false, err && err.message);
   }
@@ -2024,8 +2057,9 @@ function connectWS(){
     try{
       const m = JSON.parse(ev.data);
       // Dashboard/Centro/Vuln sao multi-tenant (pull*). Do WS do primario, so o Mapa (IOC) consome delta.
-      if (m.type === 'ioc')             applyIoc(m.data);
-      if (m.type === 'map')             applyAttackMap(m.data);
+      // No Dash SOC o mapa agrega varios tenants (pullLive); ignoramos o delta do primario p/ nao encolher o conjunto.
+      if (MAP_TENANTS.length===1 && m.type === 'ioc') applyIoc(m.data);
+      if (MAP_TENANTS.length===1 && m.type === 'map') applyAttackMap(m.data);
       // 'vulnerabilities' (delta WS do tenant primario) IGNORADO: a tela Vuln e multi-tenant (pullVuln).
     }catch(e){}
   };
