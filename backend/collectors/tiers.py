@@ -696,6 +696,24 @@ def _pub_ip(v):
     return str(ip) if ip.is_global else None
 
 
+# Denylist curada de domínios benignos/tracking/telemetria/torrent nas Suspicious Connections do endpoint.
+# O Vision One rotula TODAS como C&C (cccaDetection=Yes, threatName ...CnC...) e não há campo que separe
+# "grayware" de C&C real — então filtramos por domínio conhecido (lista mantida manualmente). Mantém os
+# que parecem C&C/PUA (ex.: cnd-bot.metasix.solutions, api.btloader.com), tira ruído (ipify, telemetria, tracker).
+_CNC_GRAYWARE = (
+    # observados no ambiente (tracking/ad-tech/telemetria/CDN/torrent) — estender conforme aparecer:
+    "ipify.org", "online-metrix.net", "msn.cn", "bttrack.com",
+    "cookiesyncmtrk.com", "rfihub.com", "msftstatic.com",
+    # trackers/telemetria ubíquos (nunca C&C plausível):
+    "doubleclick.net", "scorecardresearch.com", "adnxs.com", "demdex.net",
+    "google-analytics.com", "googletagmanager.com",
+)
+
+
+def _is_grayware(host: str) -> bool:
+    return any(host == d or host.endswith("." + d) for d in _CNC_GRAYWARE)
+
+
 async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int = 100, limit: int = 70) -> list:
     """Marcadores do mapa = IP/URL externo malicioso + FERRAMENTA que detectou (search/detections).
       * Servidor/TippingPoint -> eventName DEEP_PACKET_INSPECTION_EVENT (src/dst externo)
@@ -708,12 +726,14 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
     now = datetime.now(timezone.utc)
     base = {"startDateTime": _iso(now - timedelta(hours=hours)), "endDateTime": _iso(now),
             "top": per_top,
-            "select": "productCode,eventName,eventSubName,domainName,src,dst,request,suspiciousObject,suspiciousObjectType"}
+            "select": ("productCode,eventName,eventSubName,domainName,cccaDetection,"
+                       "src,dst,request,suspiciousObject,suspiciousObjectType")}
 
-    async def fetch(query: str) -> list:
+    async def fetch(query: str, top: int = 0) -> list:
         try:
+            params = {**base, "top": top} if top else base
             d = await asyncio.wait_for(
-                v1.get_json("/v3.0/search/detections", params=base, extra_headers={"TMV1-Query": query}),
+                v1.get_json("/v3.0/search/detections", params=params, extra_headers={"TMV1-Query": query}),
                 timeout=30)
             return d.get("items") or []
         except Exception as exc:  # noqa: BLE001
@@ -774,7 +794,11 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
 
     # Suspicious Connection (Apex One / Network Content Inspection = CCCA): o ENDPOINT detecta/bloqueia
     # conexao a dominio C&C externo. Indicador externo = domainName (host) -> DNS -> geo; ferramenta = Endpoint.
-    for it in await fetch('eventName:SECURITY_RISK_DETECTION and eventSubName:"Network Content Inspection"'):
+    # Todas sao C&C (cccaDetection=Yes); o C&C confirmado (Virtual Analyzer) so traz IP interno (nao geolocalizavel),
+    # entao o indicador externo vem do dominio bloqueado. Denylist curada (_is_grayware) remove benigno/tracking.
+    for it in await fetch('eventName:SECURITY_RISK_DETECTION and eventSubName:"Network Content Inspection"', top=300):
+        if str(_first(it.get("cccaDetection")) or "").lower() != "yes":
+            continue
         prod = _MAP_PRODUCTS.get(str(it.get("productCode") or "").lower())
         if not prod:
             continue
@@ -782,9 +806,10 @@ async def attack_map_markers(v1: VisionOneClient, hours: int = 6, per_top: int =
         if not host:
             continue
         host = str(host).strip().lower().rstrip(".")
-        if host and _pub_ip(host) is None and host not in ip_prod:
-            url_prod.setdefault(host, prod)
-            url_ct[host] = url_ct.get(host, 0) + 1
+        if not host or _pub_ip(host) is not None or _is_grayware(host) or host in ip_prod:
+            continue
+        url_prod.setdefault(host, prod)
+        url_ct[host] = url_ct.get(host, 0) + 1
 
     markers = []
     for ip in sorted(ip_prod, key=lambda k: ip_ct.get(k, 0), reverse=True)[:limit]:

@@ -464,10 +464,11 @@ body{
 .cvemaq .bar i{display:block;height:100%;border-radius:3px}
 .cveips{text-align:right;font-family:var(--display);font-weight:700;font-size:12.5px;white-space:nowrap}
 
-#map.screen{grid-template-columns:1fr 300px;grid-template-rows:minmax(0,1fr);gap:10px;padding:8px 10px}
+#map.screen{grid-template-columns:1fr 344px;grid-template-rows:minmax(0,1fr);gap:10px;padding:8px 10px}
 #map .p-rankings{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
 #map .p-rankings>.panel{min-height:0}
-#map .p-rankings .phead h3{font-size:12px;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#map .p-rankings .phead h3{font-size:12px;letter-spacing:.4px;white-space:nowrap;flex-shrink:0}   /* titulo sempre inteiro */
+#map .p-rankings .phead .sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}  /* o subtitulo cede espaco */
 #map .p-rankings .phead .livetag{white-space:nowrap;flex-shrink:0}
 #map #cyberOrgList,#map #iocList,#map #wafList{min-height:0}
 .waf-head{display:flex;align-items:baseline;gap:8px;padding:1px 2px 7px}
@@ -1472,6 +1473,14 @@ function applyIoc(d){
   // os marcadores do mapa vem de applyAttackMap (v1:{t}:map — por ferramenta que detectou)
   ['iocLive','iocTypeLive','iocLive2'].forEach(id=>{const t=document.getElementById(id); if(t) t.style.display='';});
 }
+// Nome do pais por extenso (PT-BR) a partir do codigo ISO (ex.: US -> Estados Unidos). Nativo do browser.
+let _regionNames=null;
+function _countryName(code){
+  if(!code) return '';
+  try{ _regionNames = _regionNames || new Intl.DisplayNames(['pt-BR'],{type:'region'});
+       return _regionNames.of(String(code).toUpperCase()) || code; }
+  catch(e){ return code; }
+}
 function applyAttackMap(arr){
   if(!Array.isArray(arr) || !arr.length) return;   // nunca-zero: coleta vazia mantem o ultimo conjunto
   iocGeo = arr;
@@ -1480,12 +1489,15 @@ function applyAttackMap(arr){
     il.innerHTML='';
     arr.slice(0,6).forEach((m,i)=>{
       const col=PROD_COLOR[m.product]||'var(--dim)';
-      const loc=m.country?(' · '+_esc(m.country)):'';
+      // "Ferramenta: Cidade - Pais" (pais por extenso); sem cidade -> "Ferramenta: Pais"; sem pais -> "Ferramenta"
+      const pais=_countryName(m.country);
+      const local=m.city?(_esc(m.city)+' - '+_esc(pais)):(pais?_esc(pais):'');
+      const meta=_esc(m.product||'')+(local?(': '+local):'');
       il.insertAdjacentHTML('beforeend',
         '<div class="li"><span class="rank">'+(i+1)+'</span>'+
         '<span class="dot-sev" style="background:'+col+'"></span>'+
         '<span class="nm mono" style="font-size:11px">'+_esc(m.value||m.ip||'—')+
-        '<small style="font-family:var(--body)">'+_esc(m.product||'')+loc+'</small></span>'+
+        '<small style="font-family:var(--body)">'+meta+'</small></span>'+
         ((m.count>1)?('<span class="sc" style="color:'+col+';font-size:10px">'+m.count+'</span>'):'')+
         '</div>');
     });
