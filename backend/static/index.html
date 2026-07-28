@@ -636,7 +636,7 @@ body{
 <nav class="navbar">
   <div class="dots" id="dots"></div>
   <div class="rot"><div class="bar" id="rotBar"></div></div>
-  <span class="hint">auto-rotação 20s · <kbd>←</kbd><kbd>→</kbd> navegar · <kbd>espaço</kbd> pausar · <kbd>F</kbd> fullscreen</span>
+  <span class="hint">auto-rotação 20s · <kbd id="navPrev" style="cursor:pointer" title="Página/tela anterior">←</kbd><kbd id="navNext" style="cursor:pointer" title="Próxima página/tela">→</kbd> navegar · <kbd>espaço</kbd> pausar · <kbd>F</kbd> fullscreen</span>
 </nav>
 
 <script>
@@ -1008,9 +1008,34 @@ function rotLoop(t){
   } else rotBar.style.width='100%';
   requestAnimationFrame(rotLoop);
 }
+// Navegação por PÁGINA: nas telas multi-página (Dashboard/Alertas/Vulnerabilidades) a seta troca de
+// página; ao passar da última/primeira página muda para a próxima/anterior TELA (como a auto-rotação já faz).
+// Telas de página única (Centro/Cyber) mudam de tela direto.
+function _pageState(){
+  const s=screens[cur];
+  if(s==='exec')    return {idx:dashSub,  total:(document.querySelectorAll('#exec .dashpage').length||1), set:setDashPage,  ms:20000};
+  if(s==='vuln')    return {idx:_vulnSlot, total:(VULN_TENANTS.length||1),                                set:showVulnSlot, ms:VULN_SLOT_MS};
+  if(s==='alertas') return {idx:_alPage,   total:_alTotalPages(),                                         set:showAlPage,   ms:AL_PAGE_MS};
+  return null;   // soc/map: página única
+}
+function navPage(dir){
+  const ps=_pageState();
+  if(!ps){ go(cur+dir); return; }
+  const next=ps.idx+dir;
+  if(next>=0 && next<ps.total){
+    rotStart=performance.now()-next*ps.ms;   // alinha o relógio da auto-rotação à página escolhida (senao o rotLoop volta p/ a pág. do tempo)
+    ps.set(next);
+  } else {
+    go(cur+dir);                             // além do limite -> próxima/anterior tela
+  }
+}
+// setas clicáveis no rodapé (além do teclado)
+const _navPrev=document.getElementById('navPrev'), _navNext=document.getElementById('navNext');
+if(_navPrev) _navPrev.onclick=()=>navPage(-1);
+if(_navNext) _navNext.onclick=()=>navPage(1);
 addEventListener('keydown',e=>{
-  if(e.key==='ArrowRight')go(cur+1);
-  else if(e.key==='ArrowLeft')go(cur-1);
+  if(e.key==='ArrowRight')navPage(1);
+  else if(e.key==='ArrowLeft')navPage(-1);
   else if(e.key===' '){e.preventDefault();paused=!paused;if(!paused)rotStart=performance.now();}
   else if(e.key.toLowerCase()==='f'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}
 });
