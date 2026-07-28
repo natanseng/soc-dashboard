@@ -403,6 +403,9 @@ body{
 .vsum-legend .lg i{width:9px;height:9px;border-radius:2px;flex-shrink:0}
 .vsum-legend .lg b{font-family:var(--display);font-weight:800;font-size:14px}
 .vsum-legend .lg small{font-size:10px;color:var(--dim)}
+.vsum-ctx{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted);letter-spacing:.3px;margin-top:10px}
+.vsum-ctx b{font-family:var(--display);font-weight:800;font-size:15px}
+.vsum-ctx .sep{color:var(--dim);font-style:normal}
 /* Card dividido: metade esquerda (vuln) | metade direita (IPS + exploit attempts) */
 .p-vsummary.vsplit{display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:stretch}
 .p-vsummary.vsplit .vhalf{display:flex;flex-direction:column;min-width:0}
@@ -600,7 +603,7 @@ body{
       <div class="vdetgrid">
         <div class="panel p-vsummary vsplit">
           <div class="vhalf">
-            <div class="phead"><span class="ico"></span><h3>Vulnerabilidades no ambiente</h3><span class="sub">por Global exploit potential</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
+            <div class="phead"><span class="ico"></span><h3>Vulnerabilidades no ambiente</h3><span class="sub">CVEs distintos · ASRM</span><span class="livetag" id="vSummaryLive" style="display:none">● AO VIVO</span></div>
             <div class="vsum" id="vSummary"><div class="rmsg">Carregando…</div></div>
           </div>
           <div class="vhalf">
@@ -1569,34 +1572,28 @@ function renderRankBars(id, rows, opt){
   });
 }
 function _vLive(id,on){ const t=document.getElementById(id); if(t) t.style.display=on?'':'none'; }
-function renderExploitSummary(sum, status){
+function renderExploitSummary(sum, status, posture){
   const el=document.getElementById('vSummary'); if(!el) return;
-  const keys=['high','medium','low'];
-  const allKnown = !!sum && keys.every(k=>sum[k]!=null);
-  const anyKnown = !!sum && keys.some(k=>sum[k]!=null);
-  // total: direto; senao SOMA dos niveis apenas se TODOS conhecidos (nunca fabrica/subestima)
-  let total = (sum && sum.total!=null) ? Number(sum.total)
-            : (allKnown ? keys.reduce((a,k)=>a+Number(sum[k]),0) : null);
-  if(!sum || (total==null && !anyKnown)){
+  // TOTAL = CVEs DISTINTOS = securityPosture.cveManagementMetrics.count (bate com a console "Group by: CVE event").
+  // NUNCA usar internalAssetVulnerabilities.totalCount: ele conta POR-ATIVO (1 linha por CVE x ativo => milhoes).
+  const vv = (posture && posture.vuln) || {};
+  const distinct = (vv.count!=null) ? Number(vv.count)
+                 : (posture && posture.cve_count!=null && posture.cve_count!=='' ? Number(posture.cve_count) : null);
+  if(distinct==null){
     const forb=(status==='forbidden');
     el.innerHTML=`<div class="rmsg c-high">${forb?'Permissão insuficiente':'Dados indisponíveis'}</div>`;
     _vLive('vSummaryLive',false); return;
   }
-  const cls={high:'high',medium:'med',low:'low'}, label={high:'Alto',medium:'Médio',low:'Baixo'};
   const nf=(n)=>Number(n).toLocaleString('pt-BR');
-  const denom=(total&&total>0)?total:0;
-  const pctOf=(n)=> denom? n/denom*100 : 0;
-  const fmtP=(x)=> (x>0&&x<10? x.toFixed(1).replace('.',',') : Math.round(x))+'%';
-  // barra: um segmento por nivel CONHECIDO (null nao entra, nunca vira 0)
-  const bar=keys.map(k=>{ const v=sum[k]; if(v==null) return '';
-      return `<div class="seg bg-${cls[k]}" style="width:${pctOf(Number(v)).toFixed(2)}%" title="${k}: ${nf(v)}"></div>`; }).join('');
-  const leg=keys.map(k=>{ const v=sum[k];
-      const inner=(v==null)?'<b>—</b>'
-        :`<b class="c-${cls[k]}">${nf(v)}</b>`+(denom?` <small>${fmtP(pctOf(Number(v)))}</small>`:'');
-      return `<span class="lg"><i style="background:var(--${cls[k]})"></i>${label[k]} ${inner}</span>`; }).join('');
-  el.innerHTML=`<div class="vsum-total"><b>${total!=null?nf(total):'—'}</b><span>Vulnerabilidades distintas</span></div>`+
-    `<div class="vsum-main"><div class="vsum-bar">${bar}</div><div class="vsum-legend">${leg}</div></div>`;
-  _vLive('vSummaryLive', total!=null);
+  const pc=(x)=> (x==null)?null:(Math.round(Number(x))+'%');
+  // contexto REAL do securityPosture (a API nao expoe a quebra por impact score de CVEs distintos)
+  const ctx=[];
+  if(vv.coverage!=null)  ctx.push(`Cobertura de avaliação <b style="color:var(--txt)">${pc(vv.coverage)}</b>`);
+  if(vv.vuln_rate!=null)  ctx.push(`Endpoints vulneráveis <b class="c-high">${pc(vv.vuln_rate)}</b>`);
+  if(vv.mttp!=null)       ctx.push(`MTTP <b style="color:var(--txt)">${nf(vv.mttp)}d</b>`);
+  el.innerHTML=`<div class="vsum-total"><b>${nf(distinct)}</b><span>Vulnerabilidades distintas</span></div>`+
+    (ctx.length?`<div class="vsum-ctx">${ctx.join('<i class="sep">·</i>')}</div>`:'');
+  _vLive('vSummaryLive', true);
 }
 // Card "Intrusion Prevention Events" (metade direita): IPS Events + Exploit attempts.
 function renderIps(ips){
@@ -1637,7 +1634,7 @@ function renderCveTable(id, rows){
   }).join('');
   el.innerHTML='<div class="cvetbl">'+head+'<div class="cvetbl-b">'+body+'</div></div>';
 }
-function applyVulnScreen(v){
+function applyVulnScreen(v, posture){
   if(!v) return;                                   // sem payload -> keep-last-good (nao mexe)
   const st=(v.metadata&&v.metadata.status)||{};
   const _panel=(cid,live,rows,s,fn)=>{
@@ -1653,7 +1650,7 @@ function applyVulnScreen(v){
     ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈Vulnerabilidades'}],
   ].forEach(([key,cid,live,opt])=>{ _panel(cid,live,v[key],st[key],()=>renderRankBars(cid,v[key],opt)); });
-  renderExploitSummary(v.exploitSummary, (st.exploitSummary));
+  renderExploitSummary(v.exploitSummary, (st.exploitSummary), posture);
   renderIps(v.ipsEvents);
 }
 
@@ -1690,7 +1687,7 @@ function renderVulnDetail(t){
   if(lab){ lab.textContent=t.name; lab.style.color=t.accent; }
   const D=vulnData[t.id], vr=(D&&D.vulnerabilities)||{};
   if(sub) sub.textContent = (vr&&Object.keys(vr).length) ? 'Top vulnerabilidades · '+t.name : 'sem dados de vulnerabilidade';
-  applyVulnScreen(vr);   // {} limpa os paineis p/ "indisponível" (nao mantem o tenant anterior)
+  applyVulnScreen(vr, (D&&D.posture)||{});   // posture -> total de CVEs DISTINTOS (nao a contagem por-ativo)
 }
 function showVulnSlot(slot){
   const n=VULN_TENANTS.length;                      // so o Detalhe rotativo (1 tenant por vez) — Panorama removido

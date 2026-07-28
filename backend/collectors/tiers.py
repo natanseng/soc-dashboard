@@ -978,29 +978,40 @@ async def vuln_rankings(v1: VisionOneClient, cve_n: int = 500, dev_n: int = 800,
             v1.get_paginated("/v3.0/asrm/internalAssetVulnerabilities",
                              params={"top": 50, "orderBy": "cveRiskLevel desc"}, limit=cve_n),
             timeout=budget)
-        rows = []
+        # internalAssetVulnerabilities vem POR-ATIVO (1 linha por CVE x ativo) -> DEDUPLICA por cveId,
+        # senao o Top-10 repete o MESMO CVE N vezes (bug). Mantem o maior impactScore; soma os ativos
+        # vistos na amostra (affectedAssetCount vem 1 por linha neste tenant, entao o somatorio = nr de ativos).
+        by_cve = {}
         for it in items:
-            sw = it.get("affectedSoftwares") or []
-            rows.append({
-                "cve": it.get("cveId"),
-                "impactScore": it.get("cveRiskScore"),   # "Vulnerability impact score" do console
-                "affectedAssets": it.get("affectedAssetCount") or 0,
-                "cvss": it.get("cvssScore"),
-                "level": str(it.get("cveRiskLevel") or "").lower(),
-                "exploit": it.get("globalExploitActivityLevel"),
-                "product": (sw[0].get("name") if sw and isinstance(sw[0], dict) else None),
-                "preventionRules": len(it.get("preventionRules") or []),  # nr de regras de prevencao (virtual patching/IPS)
-            })
-        rows.sort(key=lambda x: ((x["impactScore"] or 0), (x["affectedAssets"] or 0)), reverse=True)
+            c = it.get("cveId")
+            if not c:
+                continue
+            g = by_cve.get(c)
+            if g is None:
+                sw = it.get("affectedSoftwares") or []
+                g = {"cve": c, "impactScore": it.get("cveRiskScore"),  # "Vulnerability impact score" do console
+                     "affectedAssets": 0, "cvss": it.get("cvssScore"),
+                     "level": str(it.get("cveRiskLevel") or "").lower(),
+                     "exploit": it.get("globalExploitActivityLevel"),
+                     "product": (sw[0].get("name") if sw and isinstance(sw[0], dict) else None),
+                     "preventionRules": len(it.get("preventionRules") or [])}
+                by_cve[c] = g
+            g["affectedAssets"] += (it.get("affectedAssetCount") or 1)
+            _sc = it.get("cveRiskScore")
+            if _sc is not None and (g["impactScore"] is None or _sc > g["impactScore"]):
+                g["impactScore"] = _sc
+        rows = sorted(by_cve.values(), key=lambda x: ((x["impactScore"] or 0), (x["affectedAssets"] or 0)), reverse=True)
         out["topCves"] = rows[:10]
         md["status"]["topCves"] = "ok" if rows else "empty"
         md["sampled"]["cves"] = len(items)
+        md["sampled"]["distinctCves"] = len(by_cve)
         md["source"].append("asrm/internalAssetVulnerabilities")
         if len(items) >= cve_n:
             md["partial"] = True
             md["limitations"].append(
-                f"Top CVEs: ranqueado por Vulnerability impact score (cveRiskScore) entre os {len(items)} CVEs "
-                "de maior risco (amostra); a API nao ordena diretamente por esse score, entao re-ranqueamos no cliente.")
+                f"Top CVEs: {len(by_cve)} CVEs DISTINTOS deduplicados de {len(items)} linhas por-ativo (amostra dos de "
+                "maior risco); 'Maquinas' = ativos vistos na amostra. A API nao agrupa por CVE nem ordena por impact "
+                "score, entao deduplicamos e re-ranqueamos no cliente.")
     except Exception as exc:  # noqa: BLE001
         log.warning("vuln.cves indisponivel: %s", diag(exc))
         md["status"]["topCves"] = _vuln_status(exc)
