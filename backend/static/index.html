@@ -948,7 +948,12 @@ function renderIOC(){
 }
 
 /* ---------- screen rotation ---------- */
-const screens=['exec','alertas','vuln','soc','map'];
+// Ocultacao TEMPORARIA da tela "Cyber" (map) SO no Dash SOC (?profile=soc / "projeto da SGGD"):
+// remove o item de navegacao + a rotacao; a <section id="map"> e todo o codigo continuam intactos.
+// Prodesp (perfil padrao) mantem "Cyber" normalmente. Para reverter: apagar o .filter abaixo.
+// (le o profile direto da URL — a const PROFILE so e definida mais abaixo, evita temporal dead zone.)
+const screens=['exec','alertas','vuln','soc','map']
+  .filter(s => s!=='map' || (new URLSearchParams(location.search).get('profile')||'').toLowerCase()!=='soc');
 const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],alertas:['ALERT MANAGEMENT','Alertas'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],vuln:['VULNERABILITY MANAGEMENT','Vulnerabilidades']};
 let cur=0, paused=false, rotStart=performance.now(), ROT=20000;
 // build dots (pontinhos de navegação) — referência explícita ao elemento #dots
