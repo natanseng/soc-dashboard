@@ -1162,10 +1162,19 @@ const _params  = new URLSearchParams(location.search);
    'prodesp' (padrao) = projeto completo, TODOS os tenants.
    'soc'              = apenas Detran, Iamspe e SGGD — em TODAS as telas.
    Mesmo backend/porta; a segmentacao e por querystring:  /  vs  /?profile=soc     */
-const PROFILES = { prodesp: null, soc: ['detran-sp','iamspe-sp','sggd'] };
+const PROFILES = { prodesp: null, soc: ['detran-sp','iamspe-sp','sggd'], apresentacao: null };
 const PROFILE  = (_params.get('profile') || 'prodesp').toLowerCase();
 const PROFILE_TENANTS = (PROFILE in PROFILES) ? PROFILES[PROFILE] : null;   // null => todos
-const PROFILE_LABEL   = (PROFILE === 'soc') ? 'DASH SOC' : 'DASH PRODESP';
+const PROFILE_LABEL   = (PROFILE === 'soc') ? 'DASH SOC' : (PROFILE === 'apresentacao' ? 'APRESENTAÇÃO' : 'DASH PRODESP');
+// Perfil "apresentacao": mostra TODOS os tenants, porem ANONIMIZA os nomes -> "Tenant N"/"Subindex N"
+// (para demos/prints). E so camada de EXIBICAO — nao muda dados nem quais tenants aparecem.
+const ANON = (PROFILE === 'apresentacao');
+const _ALL_TIDS = ['prodesp-sp','detran-sp','iamspe-sp','sggd','poupatempo','spi','alesp','cptm'];
+const _TNUM = {}; _ALL_TIDS.forEach((id,i)=>_TNUM[id]=i+1); let _tNext=_ALL_TIDS.length;
+function _anonTenant(id){ if(!(id in _TNUM)) _TNUM[id]=++_tNext; return 'Tenant '+_TNUM[id]; }        // id -> "Tenant N" (estavel)
+const _SNUM = {}; let _sNext=0;                                                                        // subindice: nome -> "Subindex N" (lazy, estavel na sessao)
+function _subLabel(name){ if(!ANON || name==null) return name; const k=String(name); if(!(k in _SNUM)) _SNUM[k]=++_sNext; return 'Subindex '+_SNUM[k]; }
+function _tenantLabel(id, realName){ return ANON ? _anonTenant(id) : (realName!=null ? realName : id); }
 function _inProfile(id){ return !PROFILE_TENANTS || PROFILE_TENANTS.indexOf(id) >= 0; }
 // querystring de escopo p/ endpoints agregados (?tenants=a,b,c); vazia no perfil completo
 const _SCOPE_QS = PROFILE_TENANTS ? ('tenants=' + PROFILE_TENANTS.map(encodeURIComponent).join(',')) : '';
@@ -1188,7 +1197,7 @@ const TENANT_LABELS = {'prodesp-sp':'PRODESP', 'TM-LAR':'TM-LAR'};
 function setTenantLabel(){
   const el = document.getElementById('tenantName');
   // No perfil SOC o header identifica o dashboard (nao um tenant especifico).
-  if (el) el.textContent = PROFILE_TENANTS ? PROFILE_LABEL : (TENANT_LABELS[TENANT] || TENANT.toUpperCase());
+  if (el) el.textContent = (PROFILE_TENANTS || ANON) ? PROFILE_LABEL : (TENANT_LABELS[TENANT] || TENANT.toUpperCase());
 }
 
 function setApiState(ok, msg){
@@ -1367,7 +1376,7 @@ function applyFeed(items){
     const tech=it.technique?(' · '+_esc(it.technique)):'';
     feed.insertAdjacentHTML('beforeend',
       '<div class="fitem"><span class="dot-sev" style="background:var(--'+sev+')"></span>'+
-      '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(it.host||'—')+tech+'</small></span>'+
+      '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(ANON?'ativo':(it.host||'—'))+tech+'</small></span>'+
       '<span class="ts">'+_fmtTime(it.time)+'</span></div>');
   });
   const rate=document.getElementById('feedRate'); if(rate) rate.textContent = Math.min(items.length,14) + ' recentes';
@@ -1418,7 +1427,7 @@ function _socFitem(it){
   const tech=it.technique?(' · '+_esc(it.technique)):'';
   const ten=it.tenant?(' · <span style="color:'+(it.accent||'var(--muted)')+';font-weight:700">'+_esc(it.tenant)+'</span>'):'';
   el.innerHTML='<span class="dot-sev" style="background:var(--'+sev+')"></span>'+
-    '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(it.host||'—')+ten+tech+'</small></span>'+
+    '<span class="ds"><b class="c-'+sev+'">'+_esc(it.name||'(detecção)')+'</b> <small>· '+_esc(ANON?'ativo':(it.host||'—'))+ten+tech+'</small></span>'+
     '<span class="ts">'+_fmtTime(it.time)+'</span>';
   return el;
 }
@@ -1585,7 +1594,7 @@ function renderRankBars(id, rows, opt){
     const v=Number(r[opt.valueKey])||0;
     const cls=_vSev(opt.levelKey&&r[opt.levelKey], v);
     const pct=Math.max(3, Math.round(v/max*100));
-    const name=_esc(r[opt.labelKey]!=null?r[opt.labelKey]:'—');
+    const name=(ANON && opt.anonLabel) ? (opt.anonLabel+' '+(i+1)) : _esc(r[opt.labelKey]!=null?r[opt.labelKey]:'—');
     const sub=(opt.subKey&&r[opt.subKey]!=null)?`<small>${_esc(r[opt.subKey])}</small>`:'';
     const badge=opt.badgeFmt?opt.badgeFmt(r):'';
     el.insertAdjacentHTML('beforeend',
@@ -1671,8 +1680,8 @@ function applyVulnScreen(v, posture){
   // Top 10 CVEs -> tabela (unica que tem impact score + exploit + regras IPS)
   _panel('vCves','vCvesLive', v.topCves, st.topCves, ()=>renderCveTable('vCves', v.topCves));
   [
-    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades'}],
-    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades'}],
+    ['topServers','vServers','vServersLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades',anonLabel:'Servidor'}],
+    ['topEndpoints','vEndpoints','vEndpointsLive',{labelKey:'asset',subKey:'os',valueKey:'cveCount',levelKey:'criticality',valueLabel:'Vulnerabilidades',anonLabel:'Endpoint'}],
     ['topApplications','vApps','vAppsLive',{labelKey:'application',subKey:'vendor',valueKey:'cveIndicators',valueLabel:'≈Vulnerabilidades'}],
   ].forEach(([key,cid,live,opt])=>{ _panel(cid,live,v[key],st[key],()=>renderRankBars(cid,v[key],opt)); });
   renderExploitSummary(v.exploitSummary, (st.exploitSummary), posture);
@@ -1689,7 +1698,7 @@ const VULN_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
-].filter(t=>_inProfile(t.id));   // Dash SOC: apenas Detran/Iamspe/SGGD
+].filter(t=>_inProfile(t.id)).map(t=> ANON ? Object.assign({}, t, {name:_anonTenant(t.id)}) : t);   // SOC filtra; apresentacao anonimiza o nome
 const VULN_SLOT_MS = 10000;          // 10s por pagina (1 tenant por vez); dwell da tela = nº tenants x 10s
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
 let _vulnSlot = -1;
@@ -1733,7 +1742,7 @@ const DASH_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
-].filter(t=>_inProfile(t.id));   // Dash SOC: Detran/Iamspe (SGGD entra via Cyber Risk Subindexes)
+].filter(t=>_inProfile(t.id)).map(t=> ANON ? Object.assign({}, t, {name:_anonTenant(t.id)}) : t);   // apresentacao: nome anonimizado
 function _riCls(v){ return v<30?'low':(v<70?'med':'crit'); }
 function _nfp(v){ return Number(v||0).toLocaleString('pt-BR'); }
 function _sv(x){ return (x==null||x==='') ? '—' : _nfp(x); }        // nunca 0 fabricado p/ indisponivel
@@ -1799,7 +1808,7 @@ function renderOrgBand(org, s){
 // Velocímetro de subíndice (mesmo estilo dos gauges Prodesp/Detran/Iamspe).
 function subGaugeSkeleton(g,i){
   return `<div class="tcol tcol-sub" style="--tcol-accent:#5A6B8C">`+
-    `<div class="tcol-head"><div class="tname">${_esc(g.name)}</div><div class="tsublabel">Subíndice</div></div>`+
+    `<div class="tcol-head"><div class="tname">${_esc(_subLabel(g.name))}</div><div class="tsublabel">Subíndice</div></div>`+
     `<div class="tsec"><div class="tsec-h">Cyber Risk Subindex <span>ASRM</span></div>`+
       `<div class="tgauge"><div class="echart" id="g_sub_${i}"></div></div>`+
       `<div class="sub-meta" id="submeta_${i}"></div></div>`+
@@ -1849,7 +1858,7 @@ const _AL_ACCENT={'prodesp-sp':'#E5202E','detran-sp':'#5B8DEF','iamspe-sp':'#27D
   'poupatempo':'#A855F7','spi':'#22D3EE','alesp':'#F472B6','cptm':'#FB923C'};
 let _alTenantNames={};
 function _alNum(v){ return (v==null)?'—':Number(v).toLocaleString('pt-BR'); }
-function _prettyTenant(t){ return _alTenantNames[t]||t; }
+function _prettyTenant(t){ return ANON ? _anonTenant(t) : (_alTenantNames[t]||t); }
 function _humanize(s){
   if(s==null) return '—'; s=Math.round(s);
   if(s<60) return s+'s';
@@ -1933,7 +1942,7 @@ function renderAlUnits(byTenant, groups, subs){
   const cards=[];
   // consoles single-org (tudo exceto o tenant de subindices); filtra pelo perfil (Dash SOC)
   (byTenant.tenants||[]).forEach(t=>{ if(t.tenantId===SUBINDEX_TENANT) return; if(!_inProfile(t.tenantId)) return; const m=t.mtt||{};
-    cards.push(_alCard({name:t.tenantName, sublabel:'console', accent:_AL_ACCENT[t.tenantId]||'#5A6B8C',
+    cards.push(_alCard({name:_tenantLabel(t.tenantId, t.tenantName), sublabel:'console', accent:_AL_ACCENT[t.tenantId]||'#5A6B8C',
       sevActive:t.severityActive, open:t.open, inProgress:t.inProgress, active:t.active, total30d:t.total30d,
       mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
   // subindices do SGGD: workbench correlacionado por coletor (coluna subindex). Uniao da LISTA de
@@ -1942,7 +1951,7 @@ function renderAlUnits(byTenant, groups, subs){
   const kids=(groups&&groups.status==='ok')?(groups.groups||[]).filter(g=>!g.isRoot).map(g=>g.name):[];
   const names=[...new Set([...kids, ...Object.keys(subMap)])];
   names.forEach(nm=>{ const s=subMap[nm]||{}, m=s.mtt||{};
-    cards.push(_alCard({name:nm, sublabel:'subíndice', accent:'#FFB020',
+    cards.push(_alCard({name:_subLabel(nm), sublabel:'subíndice', accent:'#FFB020',
       sevActive:s.severityActive||{}, open:s.open||0, inProgress:s.inProgress||0, active:s.active||0,
       total30d:s.total30d||0, mttd:m.mttdSeconds, mttr:m.mttrSeconds})); });
   _alCards=cards; _renderAlPage();   // pagina 6/pagina (mantem a pagina atual no refresh)
