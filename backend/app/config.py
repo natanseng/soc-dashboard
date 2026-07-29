@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     v1_api_token_spi: str = ""
     v1_api_token_alesp: str = ""
     v1_api_token_cptm: str = ""
+    # Cliente separado (fora da familia Prodesp): Prefeitura de Salvador — perfil proprio ?profile=salvador
+    v1_api_token_salvador: str = ""
 
     # Infra
     redis_url: str = "redis://localhost:6379/0"

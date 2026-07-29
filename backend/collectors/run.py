@@ -440,7 +440,8 @@ async def main():
                   ("poupatempo", settings.v1_api_token_poupatempo),
                   ("spi", settings.v1_api_token_spi),
                   ("alesp", settings.v1_api_token_alesp),
-                  ("cptm", settings.v1_api_token_cptm)]
+                  ("cptm", settings.v1_api_token_cptm),
+                  ("salvador", settings.v1_api_token_salvador)]   # cliente separado (Prefeitura de Salvador); perfil proprio
     _vuln_clients = [(TENANT, v1)]   # coleta de vuln: primario + secundarios com token
     for _i, (_tid, _tok) in enumerate(_secondary):
         if not _tok:

@@ -955,8 +955,12 @@ function renderIOC(){
 // remove o item de navegacao + a rotacao; a <section id="map"> e todo o codigo continuam intactos.
 // Prodesp (perfil padrao) mantem "Cyber" normalmente. Para reverter: apagar o .filter abaixo.
 // (le o profile direto da URL — a const PROFILE so e definida mais abaixo, evita temporal dead zone.)
-const screens=['exec','alertas','vuln','soc','map']
-  .filter(s => s!=='map' || (new URLSearchParams(location.search).get('profile')||'').toLowerCase()!=='soc');
+const _urlProfile=(new URLSearchParams(location.search).get('profile')||'').toLowerCase();
+const screens=['exec','alertas','vuln','soc','map'].filter(s=>{
+  if(s==='map'     && _urlProfile==='soc')      return false;   // SOC oculta o Cyber
+  if(s==='alertas' && _urlProfile==='salvador') return false;   // Salvador: Alertas depende do Postgres (sem dado)
+  return true;
+});
 const meta={exec:['SECURITY COMMAND CENTER','Dashboard Executivo'],alertas:['ALERT MANAGEMENT','Alertas'],soc:['SOC · OPERAÇÕES','Centro de Operações de Segurança'],map:['THREAT INTELLIGENCE','Cyber Attack Map'],vuln:['VULNERABILITY MANAGEMENT','Vulnerabilidades']};
 let cur=0, paused=false, rotStart=performance.now(), ROT=20000;
 // build dots (pontinhos de navegação) — referência explícita ao elemento #dots
@@ -1162,10 +1166,12 @@ const _params  = new URLSearchParams(location.search);
    'prodesp' (padrao) = projeto completo, TODOS os tenants.
    'soc'              = apenas Detran, Iamspe e SGGD — em TODAS as telas.
    Mesmo backend/porta; a segmentacao e por querystring:  /  vs  /?profile=soc     */
-const PROFILES = { prodesp: null, soc: ['detran-sp','iamspe-sp','sggd'], apresentacao: null };
+const PROFILES = { prodesp: null, soc: ['detran-sp','iamspe-sp','sggd'], apresentacao: null, salvador: ['salvador'] };
 const PROFILE  = (_params.get('profile') || 'prodesp').toLowerCase();
 const PROFILE_TENANTS = (PROFILE in PROFILES) ? PROFILES[PROFILE] : null;   // null => todos
-const PROFILE_LABEL   = (PROFILE === 'soc') ? 'DASH SOC' : (PROFILE === 'apresentacao' ? 'APRESENTAÇÃO' : 'DASH PRODESP');
+const PROFILE_LABEL   = (PROFILE === 'soc') ? 'DASH SOC'
+                      : (PROFILE === 'apresentacao') ? 'APRESENTAÇÃO'
+                      : (PROFILE === 'salvador') ? 'PREF. SALVADOR' : 'DASH PRODESP';
 // Perfil "apresentacao": mostra TODOS os tenants, porem ANONIMIZA os nomes -> "Tenant N"/"Subindex N"
 // (para demos/prints). E so camada de EXIBICAO — nao muda dados nem quais tenants aparecem.
 const ANON = (PROFILE === 'apresentacao');
@@ -1175,7 +1181,12 @@ function _anonTenant(id){ if(!(id in _TNUM)) _TNUM[id]=++_tNext; return 'Tenant 
 const _SNUM = {}; let _sNext=0;                                                                        // subindice: nome -> "Subindex N" (lazy, estavel na sessao)
 function _subLabel(name){ if(!ANON || name==null) return name; const k=String(name); if(!(k in _SNUM)) _SNUM[k]=++_sNext; return 'Subindex '+_SNUM[k]; }
 function _tenantLabel(id, realName){ return ANON ? _anonTenant(id) : (realName!=null ? realName : id); }
-function _inProfile(id){ return !PROFILE_TENANTS || PROFILE_TENANTS.indexOf(id) >= 0; }
+const _SALV_ID = 'salvador';   // cliente separado (Prefeitura de Salvador): só aparece no proprio perfil
+function _inProfile(id){
+  if(PROFILE==='salvador') return id===_SALV_ID;   // perfil salvador: só o tenant salvador
+  if(id===_SALV_ID) return false;                  // salvador nunca aparece nos demais perfis
+  return !PROFILE_TENANTS || PROFILE_TENANTS.indexOf(id) >= 0;
+}
 // querystring de escopo p/ endpoints agregados (?tenants=a,b,c); vazia no perfil completo
 const _SCOPE_QS = PROFILE_TENANTS ? ('tenants=' + PROFILE_TENANTS.map(encodeURIComponent).join(',')) : '';
 function _scoped(path){ return _SCOPE_QS ? (path + (path.indexOf('?')>=0?'&':'?') + _SCOPE_QS) : path; }
@@ -1698,6 +1709,7 @@ const VULN_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
+  {id:'salvador',   name:'Salvador',   accent:'#00A6A6'},   // Prefeitura de Salvador (perfil proprio)
 ].filter(t=>_inProfile(t.id)).map(t=> ANON ? Object.assign({}, t, {name:_anonTenant(t.id)}) : t);   // SOC filtra; apresentacao anonimiza o nome
 const VULN_SLOT_MS = 10000;          // 10s por pagina (1 tenant por vez); dwell da tela = nº tenants x 10s
 let vulnData = {};                   // {tenantId: {posture, vulnerabilities}} — keep-last-good por tenant
@@ -1742,6 +1754,7 @@ const DASH_TENANTS = [
   {id:'spi',        name:'SPI',        accent:'#22D3EE'},
   {id:'alesp',      name:'Alesp',      accent:'#F472B6'},
   {id:'cptm',       name:'CPTM',       accent:'#FB923C'},
+  {id:'salvador',   name:'Salvador',   accent:'#00A6A6'},   // Prefeitura de Salvador (perfil proprio)
 ].filter(t=>_inProfile(t.id)).map(t=> ANON ? Object.assign({}, t, {name:_anonTenant(t.id)}) : t);   // apresentacao: nome anonimizado
 function _riCls(v){ return v<30?'low':(v<70?'med':'crit'); }
 function _nfp(v){ return Number(v||0).toLocaleString('pt-BR'); }
@@ -1766,7 +1779,7 @@ function _tGaugeSet(id, v){
 }
 // Cyber Risk Subindexes (ASRM /v3.0/asrm/assetGroups): grupos vindos da API (sem hardcode).
 // Tenant com subórgãos (asset groups). Cards renderizados dinamicamente por loadSubindexes().
-const SUBINDEX_TENANT = 'sggd';
+const SUBINDEX_TENANT = (PROFILE === 'salvador') ? null : 'sggd';   // Salvador nao tem subindices (só a raiz)
 function tenantColSkeleton(t){
   return `<div class="tcol" id="tcol-${t.id}" style="--tcol-accent:${t.accent}">`+
     `<div class="tcol-head"><div class="tname">${_esc(t.name)}</div><div class="tlive off" id="tlive_${t.id}">● —</div></div>`+
@@ -1816,6 +1829,7 @@ function subGaugeSkeleton(g,i){
 }
 let _subGaugeKeys='';
 async function loadSubindexes(){
+  if(!SUBINDEX_TENANT) return;   // perfil sem subindices (ex.: Salvador)
   const band=document.getElementById('subOrgBand'), wrap=document.getElementById('subGauges');
   if(!band||!wrap) return;
   let d=null, status='unavailable';
@@ -2002,7 +2016,8 @@ function buildDashCols(){
     exec.insertBefore(pg, sub);   // antes da pagina de subindices
   }
   DASH_TENANTS.forEach(t=>{ try{ reg('g_'+t.id, tGaugeOpt()); }catch(e){} });
-  loadSubindexes();   // Cyber Risk Subindexes (ASRM) — dinâmico, dados reais /cyber/asset-groups
+  if(SUBINDEX_TENANT){ loadSubindexes(); }   // Cyber Risk Subindexes (ASRM) — dados reais /cyber/asset-groups
+  else { sub.remove(); }                     // Salvador: sem página de subíndices (só a raiz)
 }
 function _mtSevRows(wb){
   const rows=[['critical','Critical','crit'],['high','High','high'],['medium','Medium','med'],['low','Low','low']];
