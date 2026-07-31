@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Cliente separado (fora da familia Prodesp): Prefeitura de Salvador — perfil proprio ?profile=salvador
     v1_api_token_salvador: str = ""
 
+    # CORS: allow-list de origens (dev cross-origin). Vazio => sem CORSMiddleware (só mesma origem). NUNCA "*".
+    cors_origins: str = "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000"
+
     # Infra
     redis_url: str = "redis://localhost:6379/0"
     db_dsn: str = ""

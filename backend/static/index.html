@@ -473,7 +473,7 @@ body{
 #map .p-rankings .phead h3{font-size:12px;letter-spacing:.4px;white-space:nowrap;flex-shrink:0}   /* titulo sempre inteiro */
 #map .p-rankings .phead .sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}  /* o subtitulo cede espaco */
 #map .p-rankings .phead .livetag{white-space:nowrap;flex-shrink:0}
-#map #cyberOrgList,#map #iocList,#map #wafList{min-height:0}
+#map #iocList,#map #wafList{min-height:0}
 .waf-head{display:flex;align-items:baseline;gap:8px;padding:1px 2px 7px}
 .waf-head b{font-family:var(--display);font-weight:800;font-size:29px;line-height:1;color:var(--crit)}
 .waf-head span{font-size:11px;color:var(--muted)}
@@ -843,36 +843,8 @@ function buildDots(){
   g.fillStyle='rgba(140,170,215,.5)';
   for(const d of landCells()){const p=proj(d.lat,d.lon); g.beginPath(); g.arc(p.x,p.y,1.25,0,7); g.fill();}
 }
-const cities={
-  Moscow:[55.75,37.6],Beijing:[39.9,116.4],Shanghai:[31.2,121.5],Pyongyang:[39,125.7],
-  Tehran:[35.7,51.4],Lagos:[6.5,3.4],Kyiv:[50.45,30.5],Bucharest:[44.4,26.1],
-  Hanoi:[21,105.8],Mumbai:[19.07,72.9],Amsterdam:[52.37,4.9],SaoPaulo:[-23.55,-46.63],
-  Brasilia:[-15.8,-47.9],RiodeJaneiro:[-22.9,-43.2],Recife:[-8.05,-34.9],Porto:[-30.0,-51.2],
-  Frankfurt:[50.1,8.7],Singapore:[1.35,103.8],Istanbul:[41,28.9],SeoulSK:[37.5,127]
-};
-const attackers=['Moscow','Beijing','Shanghai','Pyongyang','Tehran','Lagos','Kyiv','Bucharest','Hanoi','Mumbai','Amsterdam','Frankfurt','Istanbul'];
-const targets=['SaoPaulo','Brasilia','RiodeJaneiro','Recife','Porto','SaoPaulo','SaoPaulo','Brasilia'];
-const sevColor={crit:C.crit,high:C.high,med:C.med,info:C.info};
 // cor por FERRAMENTA que detectou o IP/URL externo (mapa Cyber + legenda do rodape)
 const PROD_COLOR={Servidor:'#F59E0B',Endpoint:'#22C55E',CAS:'#22D3EE',DDI:'#A855F7',TippingPoint:'#EC4899'};
-let arcs=[],ripples=[];
-function spawnArc(){
-  const oName=pick(attackers), dName=pick(targets);
-  const o=cities[oName], d=cities[dName];
-  if(!o||!d)return;
-  const a=proj(o[0],o[1]), b=proj(d[0],d[1]);
-  const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-  const dist=Math.hypot(b.x-a.x,b.y-a.y);
-  const lift=Math.min(220,dist*0.5+40);
-  const cx=mx, cy=my-lift;
-  const sev=pick(['crit','high','high','med','med','info']);
-  arcs.push({a,b,cx,cy,t:0,sp:rnd(.006,.012),col:sevColor[sev],sev,trail:rnd(.16,.28)});
-  // map stats + rankings + ticker
-  bumpAttacker(oName); attacksMin++; if(Math.random()<.94)blockedTot++;
-}
-let attacksMin=0,blockedTot=0;
-const attackerCount={};
-function bumpAttacker(n){attackerCount[n]=(attackerCount[n]||0)+1;}
 function bez(p0,p1,p2,t){const u=1-t;return{x:u*u*p0.x+2*u*t*p1.x+t*t*p2.x,y:u*u*p0.y+2*u*t*p1.y+t*t*p2.y};}
 function drawMap(){
   ctx.clearRect(0,0,W,H);
@@ -921,34 +893,6 @@ function drawMap(){
   }
   requestAnimationFrame(drawMap);
 }
-// rankings + ioc lists
-const flag={Moscow:'🇷🇺',Beijing:'🇨🇳',Shanghai:'🇨🇳',Pyongyang:'🇰🇵',Tehran:'🇮🇷',Lagos:'🇳🇬',Kyiv:'🇺🇦',Bucharest:'🇷🇴',Hanoi:'🇻🇳',Mumbai:'🇮🇳',Amsterdam:'🇳🇱',Frankfurt:'🇩🇪',Istanbul:'🇹🇷'};
-const cName={Moscow:'Rússia',Beijing:'China',Shanghai:'China',Pyongyang:'Coreia do N.',Tehran:'Irã',Lagos:'Nigéria',Kyiv:'Ucrânia',Bucharest:'Romênia',Hanoi:'Vietnã',Mumbai:'Índia',Amsterdam:'Holanda',Frankfurt:'Alemanha',Istanbul:'Turquia'};
-function renderAttackers(){
-  const agg={};
-  Object.entries(attackerCount).forEach(([k,v])=>{const c=cName[k]||k;agg[c]=(agg[c]||0)+v;});
-  const top=Object.entries(agg).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  const fl={'Rússia':'🇷🇺','China':'🇨🇳','Coreia do N.':'🇰🇵','Irã':'🇮🇷','Nigéria':'🇳🇬','Ucrânia':'🇺🇦','Romênia':'🇷🇴','Vietnã':'🇻🇳','Índia':'🇮🇳','Holanda':'🇳🇱','Alemanha':'🇩🇪','Turquia':'🇹🇷'};
-  const max=top.length?top[0][1]:1;
-  attackerList.innerHTML='';
-  top.forEach((e,i)=>{
-    attackerList.insertAdjacentHTML('beforeend',
-    `<div class="li"><span class="rank">${i+1}</span><span style="font-size:15px">${fl[e[0]]||'🏴'}</span>
-      <span class="nm">${e[0]}</span>
-      <span class="sc c-high">${e[1]}</span></div>`);
-  });
-}
-const iocs=[['185.220.101.47','TOR exit · C2',312,'crit'],['45.95.147.236','Bulletproof host',221,'crit'],['malware-delivery[.]ru','Dropper domain',198,'high'],['phish-login[.]com','Phishing kit',176,'high'],['91.219.236.18','Scanner/bruteforce',154,'high'],['cdn-update[.]xyz','Fake CDN / C2',132,'med']];
-function renderIOC(){
-  iocList.innerHTML='';
-  iocs.forEach((c,i)=>{
-    iocList.insertAdjacentHTML('beforeend',
-    `<div class="li"><span class="rank">${i+1}</span>
-      <span class="dot-sev" style="background:var(--${c[3]})"></span>
-      <span class="nm mono" style="font-size:11px">${c[0]}<small style="font-family:var(--body)">${c[1]}</small></span>
-      <span class="sc c-${c[3]}">${c[2]}</span></div>`);
-  });
-}
 
 /* ---------- screen rotation ---------- */
 // Ocultacao TEMPORARIA da tela "Cyber" (map) SO no Dash SOC (?profile=soc / "projeto da SGGD"):
@@ -987,7 +931,7 @@ function go(i){
   if(screens[cur]==='exec'){ dashSub=-1; setDashPage(0); }   // Dashboard reinicia na 1a sub-pagina
   if(screens[cur]==='vuln'){ _vulnSlot=-1; showVulnSlot(0); pullVuln(); }   // Vulnerabilidades multi-tenant: comeca no Panorama
   if(screens[cur]==='soc'){ pullSoc(); }                     // Centro multi-tenant: agrega 4 tenants + Live Detections animado
-  if(screens[cur]==='map'){ loadCyber(); loadWaf(); }        // tela Cyber: dados reais /cyber/*
+  if(screens[cur]==='map'){ loadWaf(); }        // tela Cyber: dados reais /cyber/waf (loadCyber removido — alvos DOM cyObs/cyberOrgList nao existem mais; evitava 4 chamadas ociosas)
   if(screens[cur]==='alertas'){ _alPage=0; loadAlertas(); }  // tela Alertas: dados reais /alerts/* (paginado 6/pagina)
   animateCounts(sc); animateBars(sc);
   Object.values(charts).forEach(c=>c.resize());
@@ -1054,7 +998,7 @@ function refreshData(){
   pullVuln();         // Vulnerabilidades multi-tenant (Panorama + detalhe atual)
   pullLive();
   const act=document.querySelector('.screen.active'); if(act)animateCounts(act);
-  if(act && act.id==='map'){ loadCyber(); loadWaf(); }   // atualiza a tela Cyber com dados reais
+  if(act && act.id==='map'){ loadWaf(); }   // atualiza a tela Cyber (loadCyber removido — DOM alvo inexistente no layout atual)
   if(act && act.id==='alertas') loadAlertas();   // atualiza a tela Alertas
   if(act && act.id==='soc') pullSoc();            // atualiza a tela Centro (multi-tenant) — pool do feed animado
 }
@@ -2070,7 +2014,7 @@ async function pullDashboard(){
       const r=await fetch(API_BASE+'/api/'+encodeURIComponent(t.id)+'/overview',{cache:'no-store'});
       if(!r.ok) throw new Error('HTTP '+r.status);
       renderTenantColumn(t, await r.json());
-    }catch(e){ renderTenantColumn(t, null); }
+    }catch(e){ const _el=document.getElementById('tlive_'+t.id); if(_el){ _el.textContent='● ATRASADO'; _el.className='tlive off'; } }   // keep-last-good: conserva a coluna, so sinaliza atraso (nao zera como antes)
   }));
 }
 

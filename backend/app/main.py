@@ -7,6 +7,7 @@ Endpoints:
   GET  /                        -> serve o dashboard (backend/static/index.html), MESMA ORIGEM
 """
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -17,7 +18,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .cache import get_redis
+from .config import settings
 from . import db, cyber_registry, cyber_tokens, cyber_api, cyber_asset_groups, cyber_alerts_api
+
+log = logging.getLogger("api")   # falhas de rota logam type(exc) (sem vazar DSN/detalhes internos)
 
 
 @asynccontextmanager
@@ -31,13 +35,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SOC Dashboard API", version="1.0", lifespan=lifespan)
 
-# Mantido por compatibilidade (ex.: abrir o dashboard em :5173). Servindo na mesma origem, nem é exigido.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS restrito: o wallboard é servido na MESMA ORIGEM (StaticFiles em "/"), então CORS nem é exigido.
+# Mantido só p/ dev cross-origin (ex.: :5173) com allow-list explícita do .env — NUNCA "*" (evita exfiltração).
+_cors = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if _cors:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors,
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
 
 
 # Wallboard em tempo real + servido por HTTP simples atras de proxy corporativo: NADA deve
@@ -164,7 +171,8 @@ async def _alerts_call(fn, **kw):
         return {"status": "unavailable"}
     try:
         return await fn(pool, **kw)
-    except Exception:  # noqa: BLE001 — nao vaza detalhes internos/DSN
+    except Exception as exc:  # noqa: BLE001 — nao vaza detalhes internos/DSN
+        log.warning("alerts.%s falhou: %s", getattr(fn, "__name__", "?"), type(exc).__name__)
         return {"status": "unavailable"}
 
 
@@ -222,7 +230,8 @@ async def cyber_summary(tenantId: Optional[str] = None, organizationId: Optional
     try:
         return await cyber_api.summary(pool, tenant_id=tenantId, organization_id=organizationId, severity=severity,
                                        enforcement_status=enforcementStatus, attribution_status=attributionStatus, hours=hours)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable"}
 
 
@@ -233,7 +242,8 @@ async def cyber_by_tenant():
         return {"status": "unavailable", "tenants": []}
     try:
         return await cyber_api.by_tenant(pool)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable", "tenants": []}
 
 
@@ -249,7 +259,8 @@ async def cyber_by_organization(tenantId: Optional[str] = None, organizationId: 
     try:
         return await cyber_api.by_organization(pool, tenant_id=tenantId, organization_id=organizationId,
                                                severity=severity, enforcement_status=enforcementStatus, hours=hours)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable", "organizations": []}
 
 
@@ -262,7 +273,8 @@ async def cyber_organizations():
         now_iso = datetime.now(timezone.utc).isoformat()
         tenants = await cyber_registry.fetch_cyber_registry(pool)
         return cyber_registry.build_payload(tenants, cyber_tokens.resolve_token, updated_at=now_iso)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable", "tenants": []}
 
 
@@ -277,7 +289,8 @@ async def cyber_map(tenantId: Optional[str] = None, organizationId: Optional[str
     try:
         return await cyber_api.map_points(pool, layer=layer, tenant_id=tenantId, organization_id=organizationId,
                                           severity=severity, hours=hours)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable", "clusters": []}
 
 
@@ -294,7 +307,8 @@ async def cyber_events(tenantId: Optional[str] = None, organizationId: Optional[
         return await cyber_api.events(pool, limit=min(max(limit, 1), 1000), tenant_id=tenantId,
                                       organization_id=organizationId, severity=severity,
                                       enforcement_status=enforcementStatus, attribution_status=attributionStatus, hours=hours)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable", "events": []}
 
 
@@ -305,7 +319,8 @@ async def cyber_coverage():
         return {"status": "unavailable"}
     try:
         return await cyber_api.coverage(pool)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable"}
 
 
@@ -316,7 +331,8 @@ async def cyber_waf(tenants: Optional[str] = None):
         return {"status": "unavailable"}
     try:
         return await cyber_api.waf_blocks(pool, tenants=_tlist(tenants))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rota cyber falhou: %s", type(exc).__name__)
         return {"status": "unavailable"}
 
 

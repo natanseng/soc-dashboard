@@ -62,22 +62,25 @@ async def _count(v1: VisionOneClient, path: str, params=None, extra_headers=None
 # T1 (60s) — Workbench + Security Posture
 # ---------------------------------------------------------------------------
 async def workbench_counters(v1: VisionOneClient) -> dict:
-    """Contadores de alertas por severidade e status."""
+    """Contadores de alertas por severidade e status. As 7 contagens (4 sev + 3 status) sao
+    INDEPENDENTES -> rodam em PARALELO (asyncio.gather) p/ nao inflar o caminho critico do T1
+    (antes eram 7 awaits seriais ~10-14s -> ~2s; devolve orcamento do guard ao posture)."""
     sevs = ["critical", "high", "medium", "low"]
     stats = ["Open", "In Progress", "Closed"]
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=30)
     base = {"startDateTime": _iso(start), "endDateTime": _iso(end), "orderBy": "createdDateTime desc"}
-    out: dict = {"severity": {}, "status": {}}
-    for s in sevs:
+
+    async def _wb(field: str, val: str) -> int:
         d = await v1.get_json("/v3.0/workbench/alerts", params={**base, "top": 1},
-                              extra_headers={"TMV1-Filter": f"severity eq '{s}'"})
-        out["severity"][s] = d.get("totalCount", len(d.get("items", [])))
-    for st in stats:
-        d = await v1.get_json("/v3.0/workbench/alerts", params={**base, "top": 1},
-                              extra_headers={"TMV1-Filter": f"status eq '{st}'"})
-        out["status"][st] = d.get("totalCount", len(d.get("items", [])))
-    return out
+                              extra_headers={"TMV1-Filter": f"{field} eq '{val}'"})
+        return d.get("totalCount", len(d.get("items", [])))
+
+    sev_r, stat_r = await asyncio.gather(
+        asyncio.gather(*(_wb("severity", s) for s in sevs)),
+        asyncio.gather(*(_wb("status", st) for st in stats)),
+    )
+    return {"severity": dict(zip(sevs, sev_r)), "status": dict(zip(stats, stat_r))}
 
 
 async def security_posture(v1: VisionOneClient) -> dict:
