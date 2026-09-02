@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Vision One
     v1_api_base: str = "https://api.xdr.trendmicro.com"
     v1_api_token: str = ""
-    tenant: str = "prodesp-sp"
+    tenant: str = "salvador"
     # Tokens dos tenants secundarios do Dashboard multi-tenant (so a tela Dashboard)
     v1_api_token_detran: str = ""
     v1_api_token_iamspe: str = ""

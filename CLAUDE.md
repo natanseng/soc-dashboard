@@ -4,9 +4,8 @@ Este arquivo orienta qualquer instância do Claude Code que trabalhe neste repos
 Leia-o **inteiro** antes de tocar em qualquer arquivo.
 
 ## 1. Contexto do projeto
-Wallboard de TV **SOC + Executivo** em tempo real para o **Trend Vision One**, tenant **PRODESP**
-(Companhia de Processamento de Dados do Estado de São Paulo — setor público). Objetivo: exibir em
-uma TV, 24/7, a postura de segurança, detecções, MITRE ATT&CK, mapa de ameaças, endpoints e
+Wallboard de TV **SOC SMART** em tempo real para o **Trend Vision One**, integrado com a **Prefeitura de Salvador**.
+Objetivo: exibir em uma TV, 24/7, a postura de segurança, detecções, MITRE ATT&CK, mapa de ameaças, endpoints e
 identidade, de forma legível à distância e sempre "ao vivo".
 
 - **Autor/operador:** analista de Customer Success técnico (Trend Micro Brasil). Interage em **pt-BR**.

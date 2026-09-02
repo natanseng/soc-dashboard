@@ -61,7 +61,7 @@ async def _merge_keep(key: str, fresh: dict) -> dict:
 async def _fetch_posture(v1: VisionOneClient, tenant: str, tries=(10.0, 12.0, 18.0)) -> dict:
     """securityPosture com retry de timeout curto.
 
-    O securityPosture do V1 é intermitente em tenants grandes (ex.: prodesp, ~8,6k workbenches):
+    O securityPosture do V1 é intermitente em tenants grandes (~8,6k workbenches):
     às vezes devolve HTTP 500 SÓ depois de 40-65s. Uma única chamada dessas estoura o guard do
     tick (51s) e cancela tudo -> posture nunca é gravado -> após 30min de TTL o painel zera (SEM DADOS).
     Como o 200 volta rápido (~1-2s), abortamos cada tentativa em `tries[i]`s e retentamos: o 500-lento
@@ -242,8 +242,8 @@ async def tick_t3(v1: VisionOneClient):
 async def tick_vuln(tenant: str, v1: VisionOneClient):
     """3600s POR TENANT: rankings de vulnerabilidade (tela Vulnerabilidades). Coleta pesada/lenta.
 
-    Multi-tenant: agendado para o primario (prodesp) E os secundarios (detran/iamspe/sggd),
-    cada um com seu cliente V1 -> escreve v1:{tenant}:vulnerabilities. Antes so o primario coletava."""
+    Multi-tenant: agendado para o tenant primário e os secundários,
+    cada um com seu cliente V1 -> escreve v1:{tenant}:vulnerabilities. Antes só o primário coletava."""
     try:
         vr = await tiers.vuln_rankings(v1)
         key = f"v1:{tenant}:vulnerabilities"
@@ -275,7 +275,7 @@ async def tick_ips(tenant: str, v1: VisionOneClient):
     """IPS Events + Exploit attempts (card da tela Vulnerabilidades) -> v1:{tenant}:ips.
 
     Tick PROPRIO e leve (search/detections + 1 OAT): NAO fica preso atras do vuln_rankings
-    (coleta de CVE lenta/instavel do prodesp). nunca-zero: None por metrica conserva o ultimo
+    (coleta de CVE lenta/instavel). nunca-zero: None por metrica conserva o ultimo
     valor bom; um 0 vindo de resposta 200 e ZERO REAL (console sem produto de IPS)."""
     key = f"v1:{tenant}:ips"
     try:
@@ -360,7 +360,7 @@ async def tick_dashboard(tenant: str, v1: VisionOneClient):
 async def tick_soc(tenant: str, v1: VisionOneClient):
     """SOC multi-tenant (tenants SECUNDARIOS): feed + mitre + trend + identity -> v1:{tenant}:*.
 
-    A tela Centro agrega os 4 tenants. O primario (prodesp) ja coleta esses tiers via t2/t3;
+    A tela Centro agrega os tenants. O tenant primário já coleta esses tiers via t2/t3;
     aqui coletamos para detran/iamspe/sggd. Cada tier faz varias chamadas OAT (mitre 14, trend 12,
     identity 4, feed 1) -> por isso este job roda em cadencia LENTA (tier3=15min) e ESCALONADO,
     para nao congestionar o event loop e nao reintroduzir o misfire do tick_t1. TTL folgado (40min)
@@ -401,8 +401,8 @@ async def main():
     v1 = VisionOneClient(settings.v1_api_token, settings.v1_api_base)
     # misfire_grace_time ALTO: com o loop congestionado (multi-tenant DASH + VULN pesados), um tick que
     # dispara alguns segundos atrasado NAO pode ser descartado. O default do APScheduler e 1s -> jobs
-    # que caem no pico do minuto (ex.: tick_t1/posture do prodesp) chegavam 1-4s atrasados e eram
-    # PERPETUAMENTE pulados -> posture do prodesp zerava (SEM DADOS). Com grace amplo + coalesce, o tick
+    # que caem no pico do minuto chegavam 1-4s atrasados e eram
+    # PERPETUAMENTE pulados -> posture zerava (SEM DADOS). Com grace amplo + coalesce, o tick
     # atrasado ainda roda (uma vez). max_instances=1 evita overlap (o _guarded ja limita a duracao).
     sched = AsyncIOScheduler(job_defaults={"misfire_grace_time": 55, "coalesce": True, "max_instances": 1})
     now = datetime.now()
@@ -451,7 +451,7 @@ async def main():
         dash_clients.append(_c)
         _vuln_clients.append((_tid, _c))
         # stagger ESPALHADO ao longo do minuto (2..~46s): com 7 secundarios, concentrar as chamadas
-        # no mesmo instante atrasaria o tick_t1 do prodesp (misfire). Espalhar reduz o pico do loop.
+        # no mesmo instante atrasaria o tick_t1 (misfire). Espalhar reduz o pico do loop.
         sched.add_job(_guarded(tick_dashboard, f"DASH[{_tid}]", _to(settings.tier1_interval)), "interval",
                       seconds=settings.tier1_interval, args=[_tid, _c], next_run_time=now + timedelta(seconds=2 + _i * 7))
     # --- Vulnerabilidades multi-tenant: rankings pesados por tenant, horario e ESCALONADO ---
