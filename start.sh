@@ -215,10 +215,20 @@ setup_backend() {
     # Criar venv se não existe
     if [ ! -d "$VENV_DIR" ]; then
         print_info "Criando venv..."
-        python3 -m venv "$VENV_DIR"
+        if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+            print_error "Falha ao criar venv. Tente manualmente:"
+            echo "  python3 -m venv $VENV_DIR"
+            exit 1
+        fi
     fi
 
     # Ativar venv
+    if [ ! -f "$VENV_DIR/bin/activate" ]; then
+        print_error "venv inválido. Removendo e recriando..."
+        rm -rf "$VENV_DIR"
+        python3 -m venv "$VENV_DIR"
+    fi
+
     source "$VENV_DIR/bin/activate"
     print_success "venv ativado"
 
