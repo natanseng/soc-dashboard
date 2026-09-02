@@ -170,11 +170,11 @@ setup_infra() {
         docker-compose down -v 2>/dev/null || true
     fi
 
-    if docker-compose ps | grep -q "postgres.*Up"; then
+    if docker-compose ps | grep -q "db.*Up"; then
         print_info "PostgreSQL já rodando"
     else
         print_info "Iniciando PostgreSQL..."
-        docker-compose up -d postgres
+        docker-compose up -d db
         sleep 3
     fi
 
@@ -190,7 +190,7 @@ setup_infra() {
 
     # Health check
     print_info "Health check..."
-    if ! docker-compose exec -T postgres pg_isready -U socdash &> /dev/null; then
+    if ! docker-compose exec -T db pg_isready -U socdash &> /dev/null; then
         print_warning "PostgreSQL não respondeu (pode estar inicializando)"
         sleep 3
     fi
