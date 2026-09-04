@@ -33,4 +33,4 @@ node_modules/
 dist/
 
 # Observacao: backend/static/echarts.min.js E versionado propositalmente
-# (biblioteca local necessaria para o frontend operar offline).
+# (biblioteca local necessaria para o frontend operar offline)
