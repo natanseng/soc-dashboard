@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# SOC SMART Dashboard — Hit & Run Startup
+# SOC Dashboard — Hit & Run Startup
 # Um comando para tudo: infra + backend + coletor
 #
 # Uso:
