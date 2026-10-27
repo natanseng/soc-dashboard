@@ -27,7 +27,7 @@ DEV_MODE=false
 
 print_help() {
     cat << EOF
-${BLUE}SOC SMART Dashboard — Inicializador${NC}
+${BLUE}SOC Dashboard — Inicializador${NC}
 
 ${GREEN}Uso:${NC}
   ./start.sh           # Tudo (hit & run)
@@ -207,8 +207,8 @@ start_api() {
 # Main
 main() {
     echo -e "\n${BLUE}╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║  SOC SMART Dashboard — Hit & Run Startup    ║${NC}"
-    echo -e "${BLUE}╚═══════════════════════════════════════════════╝${NC}\n"
+    echo -e "${BLUE}║       SOC Dashboard — Hit & Run Startup         ║${NC}"
+    echo -e "${BLUE}╚═════════════════════════════════════════════════╝${NC}\n"
 
     check_requirements
     start_infra
